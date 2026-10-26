@@ -20,6 +20,7 @@ android {
         if (project.hasProperty('appVersionCode')) versionCode project.property('appVersionCode').toInteger()
         if (project.hasProperty('appVersionName')) versionName project.property('appVersionName')
         testInstrumentationRunner 'com.screenohrecord.app.PrivacyTestRunner'
+        if (project.hasProperty('testRunner')) testInstrumentationRunner project.property('testRunner')
     }
     signingConfigs {
         localRelease {

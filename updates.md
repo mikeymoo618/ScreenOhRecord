@@ -85,3 +85,9 @@
 - Final signed APK passed build/lint (zero errors, 29 warnings) and eighteen unique Android 16 regression groups, including real AV1 MP4/audio, permanent discard in MediaStore/custom folder, weekly opt-in and alternate signer rejection.
 - Tightened weekly requests to bind specifically to unmetered Wi-Fi and kept capture excluded through the installation stage. Checked the publisher syntax/source allowlist and preserved all diagnostics.
 - Final APK: 115,108 bytes; SHA-256 d8308b4cb35446d29e852ffe0eb59d00cc6bd3f93f40253813c3871343d865d7. Live public-release installer verification follows publication.
+
+## 2026-10-27 - 1.2.0 published and live updater verified
+- Published source/tag v1.2.0 and signed APK/checksum/update.json at https://github.com/mikeymoo618/ScreenOhRecord/releases/tag/v1.2.0. Preserved the existing remote history; excluded signing keys, credentials, test runtimes, analysis and recordings.
+- Actual older-build updater downloaded the public APK and Android confirmation installed code 8. Pulled installed APK matches the release SHA-256 exactly. Verified private settings survived, foreground check reports latest, and a real Wi-Fi job fetches metadata without downloading an APK; weekly remains off.
+- Registered the separate integration runner through a Gradle test-only property. Retained all failed harness/background-DNS attempts and improved test error diagnostics. Runtime APK unchanged.
+- Source reproduction differs only in embedded Git revision metadata after initializing this project repository; all code/resource payload entries match. Kept rebuild separately and restored local delivery to exact published APK. Updated final verification records; physical phone untouched.

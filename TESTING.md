@@ -1,6 +1,6 @@
 # Verification - ScreenOhRecord 1.2.0
 
-Core release verification completed 2026-10-27 on the task-owned ScreenOhRecord16 Android 16/API 36 x86_64 emulator. No physical phone was modified. Live public-release installer verification follows initial publication and will be recorded separately.
+Core release verification completed 2026-10-27 on the task-owned ScreenOhRecord16 Android 16/API 36 x86_64 emulator. No physical phone was modified. Live public-release download/install and post-upgrade checks also completed successfully.
 
 ## Delivered artifact
 
@@ -33,3 +33,18 @@ The old no-INTERNET guarantee is intentionally superseded by the user-approved u
 All intermediate logs and earlier release reports remain local. This includes a quoted-Gradle-property test-fixture invocation correction and the publisher's pre-execution syntax-check correction. The final APK differs from the first candidate by tightened Wi-Fi binding, installation-operation exclusion and explicit AV1 platform guarding; the final eighteen-group run tests that exact signed artifact.
 
 Actual H.264 and AV1 playback were exercised; full-resolution HEVC is unavailable on this emulator (512x512 encoder limit). Removable/SD media and physical-phone codec/microphone performance are not established. Frame rate is a target and size is a bitrate estimate, not a guarantee. Android can delay weekly jobs and user installation approval is always required.
+
+
+## Live GitHub updater integration - completed
+
+Published https://github.com/mikeymoo618/ScreenOhRecord/releases/tag/v1.2.0 with the verified signed APK, checksum and update.json. Matching application source is tagged v1.2.0; the main branch additionally records the final integration-test registration and verification notes.
+
+On the same isolated emulator, installed a synthetic older build (1.1.99/code 7) containing the updater and original signing identity. This is only a local test fixture, never a public release. The app's actual Updates screen fetched the live GitHub release, displayed the upgrade, accepted the test user's download approval, downloaded the real public APK, passed validation and reached Android's own Update confirmation. The test approved that system dialog. Installation replaced the instrumented app process, producing an expected framework 'Process crashed' status; it is not counted as a test failure because the pre-install marker and resulting package/hash independently prove completion.
+
+Host inspection confirmed installed versionCode 8/versionName 1.2.0 and pulled its installed base.apk. Its SHA-256 exactly matches the public release d8308b4cb35446d29e852ffe0eb59d00cc6bd3f93f40253813c3871343d865d7. A subsequent test exercised the production foreground Updates screen: it reported the latest published version and verified a private settings marker survived the upgrade. Weekly checks remained disabled. A real opted-in Wi-Fi JobScheduler run then fetched live release metadata without creating/changing an APK download; the test disabled the schedule again afterward.
+
+Evidence: artifacts/live-updater-host-1.2.0-second.log, instrumentation-live-updater-install-1.2.0.log, instrumentation-live-updater-after-install-1.2.0-ui.log, integration-updater-1.2.0.json and verification-1.2.0.json. The image ScreenOhRecord-update-install-Android16.png captures the updater during the install hand-off (a transition frame, not the final system dialog). No physical phone was modified. The integration host allowed installation from this source on the emulator; physical devices still require the Android allow-from-this-source setting when needed.
+
+Retained diagnostic attempts include an ignored extra instrumentation-manifest entry (fixed by explicitly selecting the test runner with the testRunner Gradle property), a direct background instrumentation metadata request that failed DNS while shell/foreground UI succeeded, and the improved error-class/message logging. The final post-upgrade test uses the actual foreground app UI and the actual Wi-Fi job and passes. Production APK code did not change for those harness corrections.
+
+A source rebuild after the dedicated project Git repository was initialized changed only META-INF/version-control-info.textproto, which embeds Git revision metadata. ZIP entry comparison found code/resources and all other payload entries identical. The rebuilt APK is retained separately as ScreenOhRecord-1.2.0-source-rebuild.apk. The local delivered ScreenOhRecord-1.2.0.apk was restored to the exact publicly published/installed artifact; its original hash and all runtime evidence remain valid. No published release asset or version tag was overwritten.

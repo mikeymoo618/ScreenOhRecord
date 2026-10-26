@@ -19,15 +19,41 @@ public final class UpdateInstallTestRunner extends Instrumentation {
         Bundle result = new Bundle();
         try {
             if (!install) {
-                if (!UpdateClient.begin()) throw new AssertionError("Update gate unavailable");
-                UpdateClient.Release release;
-                try { release = UpdateClient.check(getTargetContext(), () -> false); }
-                finally { UpdateClient.end(); }
+                // Exercise the production foreground UI, rather than a background instrumentation socket.
+                Activity screen = startActivitySync(new android.content.Intent(getTargetContext(), UpdatesActivity.class)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK));
+                runOnMainSync(() -> screen.findViewById(R.id.update_check).performClick());
+                waitForText(screen, "latest published version", 60000);
+                UpdateClient.Release release = UpdateClient.cached(getTargetContext());
+                if (release == null) throw new AssertionError("Foreground check did not save release metadata");
                 if (release.versionCode != BuildConfig.VERSION_CODE) throw new AssertionError("Live latest release does not match installed build");
                 if (!getTargetContext().getSharedPreferences("updates", 0).getBoolean("upgrade_marker", false))
                     throw new AssertionError("Update did not preserve private settings");
                 if (UpdateScheduler.enabled(getTargetContext())) throw new AssertionError("Update enabled weekly checks without approval");
-                result.putString("stream", "PASS: live GitHub release metadata matches installed update; private settings preserved and weekly checks remain off\n");
+                boolean wifiJob = false;
+                if (UpdateClient.unmeteredWifi(getTargetContext())) {
+                    java.io.File apk = new java.io.File(getTargetContext().getFilesDir(), "updates/verified.apk");
+                    long oldLength = apk.exists() ? apk.length() : -1;
+                    long oldModified = apk.exists() ? apk.lastModified() : -1;
+                    long oldCheck = getTargetContext().getSharedPreferences("updates", 0).getLong("last_check", 0);
+                    if (!UpdateScheduler.setEnabled(getTargetContext(), true)) throw new AssertionError("Cannot schedule Wi-Fi job");
+                    try {
+                        try (android.os.ParcelFileDescriptor command = getUiAutomation().executeShellCommand(
+                                "cmd jobscheduler run -f com.screenohrecord.app " + UpdateScheduler.JOB_ID);
+                                java.io.FileInputStream input = new java.io.FileInputStream(command.getFileDescriptor())) {
+                            byte[] buffer = new byte[1024]; while (input.read(buffer) != -1) { }
+                        }
+                        long until = SystemClock.elapsedRealtime() + 60000;
+                        while (getTargetContext().getSharedPreferences("updates", 0).getLong("last_check", 0) <= oldCheck
+                                && SystemClock.elapsedRealtime() < until) SystemClock.sleep(200);
+                        if (getTargetContext().getSharedPreferences("updates", 0).getLong("last_check", 0) <= oldCheck)
+                            throw new AssertionError("Wi-Fi job did not fetch live metadata");
+                        if ((apk.exists() ? apk.length() : -1) != oldLength || (apk.exists() ? apk.lastModified() : -1) != oldModified)
+                            throw new AssertionError("Weekly job unexpectedly changed/downloaded an APK");
+                        wifiJob = true;
+                    } finally { UpdateScheduler.setEnabled(getTargetContext(), false); }
+                }
+                result.putString("stream", "PASS: live GitHub foreground check matches installed update; private settings preserved and weekly checks remain off; live Wi-Fi metadata-only job=" + wifiJob + "\n");
                 finish(Activity.RESULT_OK, result); return;
             }
             getTargetContext().getSharedPreferences("updates", 0).edit().putBoolean("upgrade_marker", true).commit();
@@ -79,7 +105,8 @@ public final class UpdateInstallTestRunner extends Instrumentation {
             SystemClock.sleep(15000);
             throw new AssertionError("App process was not replaced after Android install approval; inspect installed version");
         } catch (Throwable error) {
-            result.putString("stream", "FAIL: " + android.util.Log.getStackTraceString(error)); finish(Activity.RESULT_CANCELED, result);
+            result.putString("stream", "FAIL: " + error.getClass().getName() + ": " + error.getMessage()
+                    + "\n" + android.util.Log.getStackTraceString(error)); finish(Activity.RESULT_CANCELED, result);
         }
     }
     private void waitForText(Activity activity, String expected, long timeout) {
