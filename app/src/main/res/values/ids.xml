@@ -1,0 +1,30 @@
+<resources>
+    <item name="floating_discard" type="id" />
+    <item name="open_updates" type="id" />
+    <item name="update_status" type="id" />
+    <item name="update_details" type="id" />
+    <item name="update_check" type="id" />
+    <item name="update_download" type="id" />
+    <item name="update_weekly" type="id" />
+    <item name="recording_settings" type="id" />
+    <item name="settings_resolution" type="id" />
+    <item name="settings_fps" type="id" />
+    <item name="settings_codec" type="id" />
+    <item name="settings_bitrate" type="id" />
+    <item name="settings_microphone" type="id" />
+    <item name="settings_folder" type="id" />
+    <item name="start_recording" type="id" />
+    <item name="pause_recording" type="id" />
+    <item name="stop_recording" type="id" />
+    <item name="microphone" type="id" />
+    <item name="recording_status" type="id" />
+    <item name="recording_timer" type="id" />
+    <item name="recording_quality" type="id" />
+    <item name="floating_toggle" type="id" />
+    <item name="floating_bubble" type="id" />
+    <item name="floating_start" type="id" />
+    <item name="floating_pause" type="id" />
+    <item name="floating_stop" type="id" />
+    <item name="floating_hide" type="id" />
+    <item name="floating_status" type="id" />
+</resources>

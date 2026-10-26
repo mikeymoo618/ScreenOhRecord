@@ -1,0 +1,52 @@
+plugins { id 'com.android.application' }
+
+def localSigning = new Properties()
+def signingFile = rootProject.file('.local-signing/signing.properties')
+if (signingFile.exists()) {
+    signingFile.withInputStream { localSigning.load(it) }
+}
+
+android {
+    namespace 'com.screenohrecord.app'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'com.screenohrecord.app'
+        minSdk 29
+        targetSdk 36
+        versionCode 8
+        versionName '1.2.0'
+        if (project.hasProperty('appVersionCode')) versionCode project.property('appVersionCode').toInteger()
+        if (project.hasProperty('appVersionName')) versionName project.property('appVersionName')
+        testInstrumentationRunner 'com.screenohrecord.app.PrivacyTestRunner'
+    }
+    signingConfigs {
+        localRelease {
+            if (signingFile.exists()) {
+                storeFile rootProject.file('.local-signing/screenohrecord.p12')
+                storePassword localSigning.getProperty('storePassword')
+                keyAlias 'screenohrecord'
+                keyPassword localSigning.getProperty('storePassword')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            debuggable false
+            minifyEnabled false
+            if (signingFile.exists()) { signingConfig signingConfigs.localRelease }
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures { buildConfig true }
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+    }
+}
+
+// Intentionally no external app dependencies, ads, analytics or networking SDKs.

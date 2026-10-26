@@ -1,0 +1,13 @@
+.gradle/
+**/build/
+local.properties
+.local-signing/
+.testing/
+artifacts/
+.publishing/
+.env
+.env.*
+*.p12
+*.jks
+*.keystore
+*.key
