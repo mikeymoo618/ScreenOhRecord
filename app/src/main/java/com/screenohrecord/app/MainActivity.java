@@ -158,7 +158,7 @@ public final class MainActivity extends Activity {
         floating.setId(R.id.floating_toggle);
         floating.setOnClickListener(view -> toggleFloating());
         marginAdd(root, floating, 18);
-        marginAdd(root, text("Optional draggable bubble with start, pause and stop. Android’s Display over other apps permission is required.", 12, MUTED), 8);
+        marginAdd(root, text("Floating controls appear when you open or return to this screen. To enable them, tap Show floating controls and allow Display over other apps in Android settings. Hide lasts until you return to the app.", 12, MUTED), 8);
 
         TextView options = text("RECORDING OPTIONS", 11, MUTED);
         options.setLetterSpacing(.12f);
@@ -429,6 +429,7 @@ public final class MainActivity extends Activity {
         syncingOptions = false;
         refreshOptionsSummary();
         completeOverlayRequest();
+        if (Settings.canDrawOverlays(this) && !FloatingControlsService.isVisible()) showFloating();
         historyWorker.execute(() -> {
             List<Uri> removed = store.pruneMissing();
             handler.post(() -> {

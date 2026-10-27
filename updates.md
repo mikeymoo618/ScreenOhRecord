@@ -1,5 +1,13 @@
 # Updates
 
+## 2026-10-27 — 1.2.3 automatic floating controls
+
+- Shows floating controls on main-screen resume when overlay permission is enabled and the bubble is absent. No recording starts automatically.
+- Keeps Hide available for the current visit; opening or returning to the main screen restores the bubble.
+- Explains the permission and Show floating controls action on the main screen. Missing or revoked permission does not trigger an automatic settings launch.
+- Adds instrumentation coverage for automatic return, Hide persistence until return, and denied/revoked permission; existing floating-recording tests use the automatic behavior.
+- Version 1.2.3/build 11. Final verification and artifact identity are recorded in TESTING.md and local artifacts.
+
 ## 2026-10-27 — 1.2.2 recording-history reconciliation
 
 - Checks saved recording URIs on a background worker when MainActivity resumes, removing only confirmed missing entries and evicting their memory-only thumbnails.

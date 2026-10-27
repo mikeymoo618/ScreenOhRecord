@@ -119,9 +119,11 @@ public final class PrivacyTestRunner extends Instrumentation {
             defaults.edit().putBoolean("microphone", true).commit();
             check(RecordingOptions.summary(getTargetContext()).contains("8.2 MB/min"), "Default size estimate incorrect");
             check(!SettingsActivity.isLocalTree(android.net.Uri.parse("content://cloud.example/tree/test")), "Cloud folder accepted");
+            shell("appops set com.screenohrecord.app SYSTEM_ALERT_WINDOW deny");
             activity = startActivitySync(new Intent(getTargetContext(), MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             Activity launched = activity;
+            check(!FloatingControlsService.isVisible(), "Automatic bubble ignored denied overlay permission");
             runOnMainSync(() -> {
                 Switch microphone = launched.findViewById(R.id.microphone);
                 check(microphone != null && microphone.isChecked(), "Microphone is not on by default");
@@ -243,10 +245,22 @@ public final class PrivacyTestRunner extends Instrumentation {
             append("PASS: floating Start with Android consent, cancellation, pause/resume, Stop/save and Hide");
 
             activity = bringMainToFront(launched);
-            tap(activity, R.id.floating_toggle);
             awaitBubble(true);
+            check(!RecordingService.status().active(), "Automatic floating controls started capture");
+            tap(activity, R.id.floating_toggle);
+            awaitBubble(false);
+            SystemClock.sleep(1000);
+            check(!FloatingControlsService.isVisible(), "Hide did not last while main screen stayed open");
+            shell("input keyevent KEYCODE_HOME");
+            activity = bringMainToFront(launched);
+            awaitBubble(true);
+            append("PASS: floating controls appear automatically on return, Hide lasts until return, no automatic capture");
             shell("appops set com.screenohrecord.app SYSTEM_ALERT_WINDOW deny");
             awaitBubble(false);
+            shell("input keyevent KEYCODE_HOME");
+            activity = bringMainToFront(launched);
+            SystemClock.sleep(600);
+            check(!FloatingControlsService.isVisible(), "Resume bypassed revoked overlay permission");
             check(!RecordingService.status().active(), "Revoked idle overlay started recording");
             append("PASS: overlay permission revocation removes bubble and its idle service");
             testRecordingSettings(launched);
@@ -314,9 +328,9 @@ public final class PrivacyTestRunner extends Instrumentation {
     }
 
     private void deleteWithFloatingControls(Activity main) throws Exception {
-        main = bringMainToFront(main);
         shell("appops set com.screenohrecord.app SYSTEM_ALERT_WINDOW allow");
-        tap(main, R.id.floating_toggle);
+        shell("input keyevent KEYCODE_HOME");
+        main = bringMainToFront(main);
         awaitBubble(true);
         int before = new RecordingStore(getTargetContext()).entries().size();
         overlayClick("floating_bubble"); overlayClick("floating_start"); consent(true);

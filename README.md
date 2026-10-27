@@ -1,6 +1,8 @@
-# ScreenOhRecord 1.2.2
+# ScreenOhRecord 1.2.3
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming, screen-text analysis or recording uploads. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
+
+**Version 1.2.3 shows floating controls automatically when opening or returning to the main screen, once Android's Display over other apps permission is enabled. Hide lasts until you return to the app. Recording still requires your action and Android capture consent.**
 
 **Version 1.2.2 removes confirmed missing recordings from history when opening or returning to the app. Delete also clears an already-missing recording. Temporary storage or permission failures preserve history.** Version 1.2.1 added recording thumbnails, a final installed-version footer, and Stop and Delete that keeps floating controls open. Version 1.2.0 introduced AV1 and the GitHub updater. The updater requires internet access; the earlier no-INTERNET permission guarantee no longer applies. Recording remains local. Network code is isolated to public GitHub update metadata/APK downloads and does not access recordings.
 
@@ -35,13 +37,13 @@ At the same bitrate, file sizes are roughly the same across codecs. More efficie
 
 ## Floating controls and deletion
 
-Tap **Show floating controls**, grant **Display over other apps**, and return. Drag the bubble; tap it for recording controls. Android consent is still required before every new recording. The bubble hides during consent and may appear in entire-screen recordings.
+If needed, tap **Show floating controls**, grant **Display over other apps**, and return. With that permission, opening or returning to the main screen automatically shows the bubble. Drag it; tap it for recording controls. Android consent is still required before every new recording. The bubble hides during consent and may appear in entire-screen recordings.
 
 - **Stop & save** finalizes the current local video and adds it to history.
 - **Stop and Delete** stops and permanently deletes only the current recording, without publishing it to history or moving it to a recycle bin. The floating menu stays open, ready to start another recording. This explicitly named action has no extra confirmation. Previously saved recordings are not affected.
-- **Hide bubble** hides controls without stopping an active recording. Use the app or notification to stop it.
+- **Hide bubble** hides controls until you return to the main screen, without stopping an active recording. Use the app or notification to stop it.
 
-Deletion failures are reported; the floating menu remains open. The app retains an unfinished-file marker for cleanup when folder access is restored and the app is reopened. The bubble never automatically records, starts at boot or restarts after process death. Revoking overlay permission closes it. An enabled idle bubble has a visible foreground notification.
+Deletion failures are reported; the floating menu remains open. The app retains an unfinished-file marker for cleanup when folder access is restored and the app is reopened. The bubble never automatically records or starts at boot. It can be restored after process death when you open the main screen. Revoking overlay permission closes it. An enabled idle bubble has a visible foreground notification.
 
 Pause/resume/stop also work through the main app and recording notification. If notification permission is denied, use the app/bubble. Screen-off stops and saves recording. Keep orientation steady; the fixed recording canvas can letterbox after rotation. Failed/too-short recordings are discarded. Recent history is limited to 50; older saved files remain on storage. No editor, captions or livestream feature is included.
 

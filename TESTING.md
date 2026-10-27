@@ -1,3 +1,27 @@
+# ScreenOhRecord 1.2.3 verification
+
+Validated on 2026-10-27 using only the task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified.
+
+- Package com.screenohrecord.app; version 1.2.3/build 11; min SDK 29, target 36.
+- Signed APK: artifacts/ScreenOhRecord-1.2.3.apk, 125,448 bytes.
+- SHA-256: 84aa3be1ec9f3825c92dd8efd0f79dcb36358cff4f4d66916013d17ba7210ba8.
+- Preserved certificate SHA-256: 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8. Signature v2 verification passed; signed emulator upgrade succeeded.
+- Build/lint: artifacts/build-1.2.3-final.log; zero errors, 32 warnings. Harness build: artifacts/build-test-1.2.3-final.log.
+- Runtime: artifacts/instrumentation-release-1.2.3-final.log; 24 unique passing groups, no FAIL/crash markers, harness process exit 0. Duplicate progress/summary lines do not count as extra tests.
+- Packaged permissions are identical to 1.2.2. No runtime dependencies or native libraries added. Artifact identity and full group list: artifacts/verification-1.2.3.json.
+
+## New behavior verified
+
+With overlay permission granted, returning to the main screen restores the bubble without pressing Show. Hide removes it and it stays hidden while the screen remains open, including across UI timer refreshes; leaving and returning restores it. Automatic appearance leaves recording idle. Launch with denied permission and return with revoked permission keep the bubble absent. Existing permission grant flow, drag behavior, capture-consent cancellation, floating recording/pause/save/discard, permission revocation, saved-video cleanup/thumbnails, low bitrates/AV1, and updater validation all passed.
+
+## Limits
+
+This is emulator evidence, not physical Samsung S22 or future-Android validation. No Google Play Protect clearance is claimed. Overlay permission must still be enabled by the user. Controls appear on main-screen resume; no recording or permission-settings screen starts automatically, and Hide lasts until that screen resumes again.
+
+---
+
+## Historical 1.2.2 verification
+
 # ScreenOhRecord 1.2.2 verification
 
 Validated on 2026-10-27 using only the task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified.
