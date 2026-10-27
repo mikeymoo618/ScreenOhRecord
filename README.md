@@ -1,12 +1,12 @@
-# ScreenOhRecord 1.2.0
+# ScreenOhRecord 1.2.1
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming, screen-text analysis or recording uploads. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
 
-**Version 1.2.0 adds AV1, Delete and Close, and a GitHub updater. The updater requires internet access; the earlier no-INTERNET permission guarantee no longer applies. Recording remains local.** Network code is isolated to public GitHub update metadata/APK downloads and does not access recordings.
+**Version 1.2.1 adds recording thumbnails, a final installed-version footer, and Stop and Delete that keeps floating controls open. Version 1.2.0 introduced AV1 and the GitHub updater. The updater requires internet access; the earlier no-INTERNET permission guarantee no longer applies. Recording remains local.** Network code is isolated to public GitHub update metadata/APK downloads and does not access recordings.
 
 ## Install and update
 
-Install the signed APK from [GitHub Releases](https://github.com/mikeymoo618/ScreenOhRecord/releases/latest). Install it over the existing ScreenOhRecord without uninstalling; the original signing identity is retained. The first move from 1.1.3 to 1.2.0 requires this manual installation because older versions have no updater. AZ Recorder may remain installed as a separate app.
+Install the signed APK from [GitHub Releases](https://github.com/mikeymoo618/ScreenOhRecord/releases/latest). Install it over the existing ScreenOhRecord without uninstalling; the original signing identity is retained. Versions before 1.2.0 require a manual APK installation; versions with App updates can use that screen for subsequent releases. AZ Recorder may remain installed as a separate app.
 
 Minimum Android 10/API 29; compile/target Android 16/API 36. Android 16 emulator tests do not establish behavior on every phone or future Android release. Do not install the separately generated instrumentation APK or local update-testbase fixture.
 
@@ -38,12 +38,18 @@ At the same bitrate, file sizes are roughly the same across codecs. More efficie
 Tap **Show floating controls**, grant **Display over other apps**, and return. Drag the bubble; tap it for recording controls. Android consent is still required before every new recording. The bubble hides during consent and may appear in entire-screen recordings.
 
 - **Stop & save** finalizes the current local video and adds it to history.
-- **Delete and Close** stops and permanently deletes only the current recording, without publishing it to history or moving it to a recycle bin, then hides the floating controls. This explicitly named action has no extra confirmation. Previously saved recordings are not affected.
+- **Stop and Delete** stops and permanently deletes only the current recording, without publishing it to history or moving it to a recycle bin. The floating menu stays open, ready to start another recording. This explicitly named action has no extra confirmation. Previously saved recordings are not affected.
 - **Hide bubble** hides controls without stopping an active recording. Use the app or notification to stop it.
 
-Deletion failures are reported; the bubble is not closed as if deletion succeeded. The app retains an unfinished-file marker for cleanup when folder access is restored and the app is reopened. The bubble never automatically records, starts at boot or restarts after process death. Revoking overlay permission closes it. An enabled idle bubble has a visible foreground notification.
+Deletion failures are reported; the floating menu remains open. The app retains an unfinished-file marker for cleanup when folder access is restored and the app is reopened. The bubble never automatically records, starts at boot or restarts after process death. Revoking overlay permission closes it. An enabled idle bubble has a visible foreground notification.
 
 Pause/resume/stop also work through the main app and recording notification. If notification permission is denied, use the app/bubble. Screen-off stops and saves recording. Keep orientation steady; the fixed recording canvas can letterbox after rotation. Failed/too-short recordings are discarded. Recent history is limited to 50; older saved files remain on storage. No editor, captions or livestream feature is included.
+
+## Saved recordings and version footer
+
+Saved recordings show a small local thumbnail beside their name, duration and size. Frames are decoded in the background with a bounded memory-only cache; no preview image files are saved. Deleting a recording removes its row and thumbnail immediately and cancels pending preview work. Missing/unreadable videos use a placeholder. Existing Play/Delete controls remain.
+
+The last line of the page shows the installed package version and build number (for this release: ScreenOhRecord 1.2.1, build 9). It is refreshed from Android package information, rather than a manually maintained label.
 
 ## Local folders and privacy
 
@@ -62,7 +68,7 @@ Requires JDK 17+ (built with Android Studio JDK 21), Android SDK 36/build tools 
 .\build.ps1          # cached/offline build and lint
 ```
 
-Outputs artifacts/ScreenOhRecord-1.2.0.apk and its checksum. Preserve both private .local-signing files securely; never publish them. Losing the original key prevents ordinary in-place upgrades.
+Outputs artifacts/ScreenOhRecord-1.2.1.apk and its checksum. Preserve both private .local-signing files securely; never publish them. Losing the original key prevents ordinary in-place upgrades.
 
 The project AGENTS.md requires verified completed upgrades to be published to this GitHub repository. Update the version/code, updates.md, RELEASE-NOTES.md and verification report, test the signed release, then run scripts/publish-release.ps1. The publisher validates the exact project Git root, source allowlist and artifact identity; preserves remote history; pushes source and a version tag; and publishes a GitHub Release only after the APK, checksum and update.json are uploaded. Artifacts stay out of Git history. Existing release versions are never overwritten. GitHub credentials are read from the local credential manager and never embedded in the APK or saved in this repository.
 

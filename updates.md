@@ -91,3 +91,14 @@
 - Actual older-build updater downloaded the public APK and Android confirmation installed code 8. Pulled installed APK matches the release SHA-256 exactly. Verified private settings survived, foreground check reports latest, and a real Wi-Fi job fetches metadata without downloading an APK; weekly remains off.
 - Registered the separate integration runner through a Gradle test-only property. Retained all failed harness/background-DNS attempts and improved test error diagnostics. Runtime APK unchanged.
 - Source reproduction differs only in embedded Git revision metadata after initializing this project repository; all code/resource payload entries match. Kept rebuild separately and restored local delivery to exact published APK. Updated final verification records; physical phone untouched.
+
+## 2026-10-27 - 1.2.1 approved UI improvements (verification pending)
+- Moved installed package version/build number to a dedicated final footer line, refreshed on resume.
+- Added background local thumbnails with a bounded memory-only cache, document-provider fallback and cancellation/invalidation on deletion or row rebuild. No preview files are written to storage.
+- Renamed floating Delete and Close to Stop and Delete; active video is discarded and floating controls stay open for another recording.
+- Incremented app to 1.2.1/code 9; build, thumbnail/deletion tests and release publication pending.
+
+## 2026-10-27 - 1.2.1 verification completed
+- Final signed release passed assembly/lint (zero errors, 32 warnings) and all twenty Android 16 test groups, including preview loading/deletion/cache eviction/cancelled decode for custom-folder and MediaStore recordings, final installed-version footer, and Stop and Delete leaving the expanded floating menu open.
+- Used direct scaled-frame extraction with a 4 MiB memory-only cache; no provider thumbnail caches, new permissions, dependencies or uploads. Visually reviewed complete list rows and ScreenOhRecord 1.2.1 / build 9 as the final page line.
+- APK: 122136 bytes; SHA-256 a1ca624b83a3b2a1c337554ba09e7b1ce962a6094f2ad2d44cb40d1627a31c39. Same signing identity retained. Updated docs/release notes/verification JSON and retained all logs; no physical-phone install or data changes.

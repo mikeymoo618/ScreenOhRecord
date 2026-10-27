@@ -325,8 +325,11 @@ public final class PrivacyTestRunner extends Instrumentation {
         String uri = getTargetContext().getSharedPreferences("local_recordings", 0).getString("unfinished", null);
         check(uri != null, "Active recording has no owned output");
         SystemClock.sleep(1600);
-        overlayClick("floating_bubble"); overlayClick("floating_discard");
-        awaitState(RecordingService.State.IDLE); awaitBubble(false);
+        overlayClick("floating_bubble");
+        check("Stop and Delete".contentEquals(overlayNode("floating_discard").getText()), "Old floating delete label remains");
+        overlayClick("floating_discard");
+        awaitState(RecordingService.State.IDLE); awaitBubble(true);
+        check(overlayNode("floating_start").isVisibleToUser(), "Floating menu closed after Stop and Delete");
         check("Recording permanently deleted".equals(RecordingService.status().message), "Discard did not report deletion: " + RecordingService.status().message);
         check(new RecordingStore(getTargetContext()).entries().size() == before, "Discarded video entered history");
         boolean missing = false;
@@ -335,8 +338,9 @@ public final class PrivacyTestRunner extends Instrumentation {
         catch (IllegalArgumentException expected) { missing = expected.getMessage() != null && expected.getMessage().contains("Missing file"); }
         check(missing, "Discarded file still opens (deleted/trash check): " + uri);
         check(!getTargetContext().getSharedPreferences("local_recordings", 0).contains("unfinished"), "Discard retained cleanup marker");
-        append("PASS: Delete and Close permanently removes active " + android.net.Uri.parse(uri).getAuthority()
-                + " output, keeps history unchanged, closes bubble and excludes updater network access");
+        append("PASS: Stop and Delete permanently removes active " + android.net.Uri.parse(uri).getAuthority()
+                + " output, keeps history unchanged, leaves floating menu open and excludes updater network access");
+        overlayClick("floating_hide"); awaitBubble(false);
     }
 
     private void testAv1(Activity main) throws Exception {
@@ -428,7 +432,7 @@ public final class PrivacyTestRunner extends Instrumentation {
                 .putString("unfinished", video.uri.toString()).putString("finalized_document", video.uri.toString()).commit();
         store.recoverInterrupted();
         verifyLatestVideo(true);
-        store.delete(video);
+        testHistoryPreviews(main, video);
         boolean deleted = false;
         try (ParcelFileDescriptor ignored = getTargetContext().getContentResolver().openFileDescriptor(video.uri, "r")) { }
         catch (java.io.FileNotFoundException expected) { deleted = true; }
@@ -463,6 +467,78 @@ public final class PrivacyTestRunner extends Instrumentation {
         testLowBitrates(main);
         deleteWithFloatingControls(main);
         testAv1(main);
+        testHistoryPreviews(main, new RecordingStore(getTargetContext()).entries().get(0));
+    }
+
+    private android.view.View recordingRow(Activity activity, String key) {
+        android.widget.LinearLayout list = visibleActivity(activity).findViewById(R.id.recording_list);
+        for (int i = 0; i < list.getChildCount(); i++) {
+            android.view.View row = list.getChildAt(i);
+            if (key.equals(row.getTag())) return row;
+        }
+        return null;
+    }
+    private void testHistoryPreviews(Activity main, RecordingStore.Entry entry) throws Exception {
+        main = bringMainToFront(main);
+        final Activity screen = main;
+        long deadline = SystemClock.elapsedRealtime() + 20000;
+        final android.widget.ImageView[] image = {null};
+        while (SystemClock.elapsedRealtime() < deadline) {
+            runOnMainSync(() -> {
+                android.view.View row = recordingRow(screen, entry.uri.toString());
+                if (row != null) {
+                    android.widget.ImageView preview = row.findViewById(R.id.recording_thumbnail);
+                    if (Boolean.TRUE.equals(preview.getTag(R.id.thumbnail_loaded))) image[0] = preview;
+                }
+            });
+            if (image[0] != null) break;
+            SystemClock.sleep(100);
+        }
+        check(image[0] != null, "Local recording thumbnail never loaded: " + entry.uri);
+        runOnMainSync(() -> {
+            android.widget.TextView footer = visibleActivity(screen).findViewById(R.id.app_version_footer);
+            check(footer.getText().toString().contains(BuildConfig.VERSION_NAME)
+                    && footer.getText().toString().contains("build " + BuildConfig.VERSION_CODE), "Version footer is stale: " + footer.getText());
+            android.view.ViewGroup parent = (android.view.ViewGroup) footer.getParent();
+            check(parent.getChildAt(parent.getChildCount() - 1) == footer, "Version is not the final page element");
+            image[0].requestRectangleOnScreen(new Rect(0, 0, image[0].getWidth(), image[0].getHeight()), true);
+        });
+        SystemClock.sleep(600);
+        Bitmap screenshot = getUiAutomation().takeScreenshot();
+        if (screenshot != null) {
+            try (java.io.FileOutputStream file = new java.io.FileOutputStream(new java.io.File(getTargetContext().getExternalFilesDir(null),
+                    "history-previews-" + entry.uri.getAuthority() + ".png"))) {
+                screenshot.compress(Bitmap.CompressFormat.PNG, 100, file);
+            } finally { screenshot.recycle(); }
+        }
+        // Cancel before a decode result reaches the UI and make sure it cannot reappear later.
+        RecordingThumbnails race = new RecordingThumbnails(getTargetContext());
+        final android.widget.ImageView[] cancelledView = {null};
+        runOnMainSync(() -> {
+            cancelledView[0] = new android.widget.ImageView(getTargetContext());
+            race.bind(entry.uri, cancelledView[0]); race.forget(entry.uri); RecordingThumbnails.clear(cancelledView[0]);
+            android.view.View row = recordingRow(screen, entry.uri.toString());
+            check(row.findViewById(R.id.recording_delete).performClick(), "History delete button unavailable");
+        });
+        clickSystemText("Delete");
+        SystemClock.sleep(1500);
+        runOnMainSync(() -> {
+            check(recordingRow(screen, entry.uri.toString()) == null, "Deleted recording row/thumbnail remains visible");
+            check(image[0].getDrawable() == null && image[0].getTag() == null, "Deleted thumbnail is still bound");
+            check(cancelledView[0].getDrawable() == null, "Cancelled preview reappeared after deletion");
+            race.close();
+        });
+        check(new RecordingStore(getTargetContext()).entries().stream().noneMatch(item -> item.uri.equals(entry.uri)), "Deleted item retained in history");
+        java.lang.reflect.Field field = MainActivity.class.getDeclaredField("thumbnails"); field.setAccessible(true);
+        RecordingThumbnails loader = (RecordingThumbnails) field.get(visibleActivity(screen));
+        final android.widget.ImageView[] missing = {null};
+        runOnMainSync(() -> { missing[0] = new android.widget.ImageView(getTargetContext()); loader.bind(entry.uri, missing[0]); });
+        SystemClock.sleep(1200);
+        runOnMainSync(() -> {
+            check(!Boolean.TRUE.equals(missing[0].getTag(R.id.thumbnail_loaded)), "Deleted preview remains in memory cache");
+            loader.forget(entry.uri); RecordingThumbnails.clear(missing[0]);
+        });
+        append("PASS: " + entry.uri.getAuthority() + " local thumbnail, final installed-version footer, confirmed UI deletion, cache eviction and cancelled decode race");
     }
 
     private void testLowBitrates(Activity main) throws Exception {

@@ -1,4 +1,10 @@
 <resources>
+    <item name="app_version_footer" type="id" />
+    <item name="recording_list" type="id" />
+    <item name="recording_thumbnail" type="id" />
+    <item name="thumbnail_loaded" type="id" />
+    <item name="recording_play" type="id" />
+    <item name="recording_delete" type="id" />
     <item name="floating_discard" type="id" />
     <item name="open_updates" type="id" />
     <item name="update_status" type="id" />

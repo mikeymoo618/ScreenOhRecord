@@ -1,50 +1,34 @@
-# Verification - ScreenOhRecord 1.2.0
+# Verification - ScreenOhRecord 1.2.1
 
-Core release verification completed 2026-10-27 on the task-owned ScreenOhRecord16 Android 16/API 36 x86_64 emulator. No physical phone was modified. Live public-release download/install and post-upgrade checks also completed successfully.
+Executed 2026-10-27 on the task-owned ScreenOhRecord16 Android 16/API 36 x86_64 emulator. This change did not modify the physical Galaxy S22 or its recordings.
 
-## Delivered artifact
+## Artifact
 
-- Package com.screenohrecord.app; version 1.2.0/code 8; minimum API 29; target/compile API 36.
-- artifacts/ScreenOhRecord-1.2.0.apk: 115,108 bytes.
-- SHA-256 d8308b4cb35446d29e852ffe0eb59d00cc6bd3f93f40253813c3871343d865d7.
-- Certificate SHA-256 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8, unchanged. APK v2 signature verification and in-place emulator installation passed.
-- Build/lint: artifacts/build-1.2.0-final.log; zero errors, 29 non-blocking warnings (translations, existing UI/platform notices and AV1's guarded API-33 constant). Runtime code checks API 33 before using AV1. Full lint details retained in app/build/reports.
-- Final tests: artifacts/instrumentation-release-1.2.0-final.log, eighteen unique passing groups. The separate test APK is signed with the local release identity and checks installed version. Duplicate progress/final-summary lines are not extra runs.
+- Package com.screenohrecord.app; version 1.2.1/code 9; minimum API 29, compile/target API 36.
+- Signed APK artifacts/ScreenOhRecord-1.2.1.apk; 122,136 bytes.
+- SHA-256 a1ca624b83a3b2a1c337554ba09e7b1ce962a6094f2ad2d44cb40d1627a31c39.
+- Certificate SHA-256 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8, unchanged. Signature v2 verification passed; signed in-place emulator upgrade succeeded without uninstalling.
+- Release build/lint passed in artifacts/build-1.2.1-final.log: zero errors, 32 non-blocking warnings retained in app/build/reports/lint-results-release.txt. Test build: artifacts/build-test-1.2.1-final.log.
+- Final runtime log: artifacts/instrumentation-release-1.2.1-final.log; twenty unique passing groups. Repeated progress/summary lines are not additional runs. Machine-readable identity/checks: artifacts/verification-1.2.1.json.
 
-## Runtime coverage
+## New behavior verified
 
-The existing fourteen groups cover capture consent cancellation, default/migration UI, dimensions/timer, silent/AAC MP4 decoding, notification pause/resume/stop, screen-off, floating permission/drag/background start/cancel/hide/revocation, actual local-folder picker and persistence, saved/unfinished recovery/deletion/revoked access, restoring Movies and low-bitrate recordings at 500/350/250kbps. The privacy assertions now explicitly expect the approved updater permissions rather than the obsolete OS socket-denial guarantee.
+1. An actual custom-folder video thumbnail loads next to its filename/duration/size. The installed version/build displayed in the footer matches the running package and is the final root-layout element.
+2. Confirming Delete through the history UI removes that recording row and clears its bound image immediately. The history entry disappears. Rebinding the deleted URI does not retrieve an old image from the memory cache.
+3. A separate decode is started and cancelled before completion; the cleared image cannot be repopulated by a late result. The same test runs for local document-provider and default MediaStore recordings, including an actual AV1 recording when available on the emulator.
+4. The floating control label is exactly Stop and Delete. It permanently discards the active output with no history entry or reopenable file and no recycle-bin operation. The bubble AND expanded menu remain open, with Start visible, for both custom-folder and MediaStore recordings. The test explicitly hides it afterward only for isolation.
+5. Background preview decoding uses scaled MediaMetadataRetriever frames and a bounded 4 MiB memory cache. No app-managed thumbnail files are written. Provider thumbnail APIs were deliberately avoided to prevent invoking their separate image caches. No extra media permissions or dependencies are introduced. Missing/unreadable video keeps a placeholder rather than crashing the UI.
 
-Four added groups cover:
+The prior eighteen regression groups also passed: updater metadata/checksum/version/signing validation and weekly opt-in/cancellation; capture-update exclusion; default/migration UI; consent cancellation; silent and microphone MP4 decoding; pause/resume/stop and screen-off; floating permission/drag/background capture/hide/revocation; actual local folder picker and persistence; recovery/deletion/revoked access; restoring Movies; 500/350/250kbps recordings; and actual AV1 output/decoding. Their modified discard groups verify the new keep-open behavior rather than the former close-on-discard behavior.
 
-1. Weekly opt-in scheduling/cancellation, protected system JobService, capture/update exclusion, fixed-repository URL validation, cleartext/lookalike/credential URL rejection, same-version rejection, corrupt checksum rejection and installed signing identity. A real same-package/version APK signed with the debug key is rejected as an alternate signer.
-2. Delete and Close on an active custom-folder video: no history entry, descriptor cannot reopen, bubble closes and no unfinished marker remains. Existing saved video stays decodable.
-3. Delete and Close on an active MediaStore video, with the same permanent-removal and history checks. Update operations cannot acquire the network gate during recording.
-4. AV1 was selected through Settings and actually encoded/decoded as video/av01 in a 720x1280 MP4 with microphone audio. The emulator achieved variable fps below the requested 15fps; physical device performance remains to be checked.
+## Package/privacy and visual inspection
 
-## Permissions/privacy/package
+Evidence: apk-permissions-1.2.1.txt, apk-badging-1.2.1.txt and apk-signature-1.2.1.txt under artifacts. The same eleven permissions remain: seven recording/notification/overlay permissions plus the four approved GitHub updater/network/install/persisted-job permissions. No broad storage/media, camera, ad identifier or accessibility-service permission was added. No native libraries, test runner, advertising SDK or third-party runtime dependency was found in the release. Recording and preview code remain local; updater requests are isolated to GitHub, with no recording uploads.
 
-Evidence is stored locally as apk-permissions-1.2.0.txt, apk-badging-1.2.0.txt, apk-manifest-1.2.0.txt, apk-signature-1.2.0.txt and verification-1.2.0.json. Eleven permissions: the seven prior foreground/microphone/notification/overlay permissions plus INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES and RECEIVE_BOOT_COMPLETED. No camera/advertising identifier/accessibility-service/broad storage/media-read permission. System job binding requires BIND_JOB_SERVICE. No third-party runtime libraries, test runner or advertising SDK is bundled in the release.
+Visual inspection of artifacts/ScreenOhRecord-footer-1.2.1-Android16.png confirms complete rows with a small thumbnail on the left, filename/duration/size beside it, unchanged Play/Delete actions below and the centred ScreenOhRecord 1.2.1 / build 9 footer as the last line. The MediaStore/custom-folder history preview images are retained alongside it. Early integration screenshots show partly scrolled rows; the final footer screenshot shows the complete layout.
 
-The old no-INTERNET guarantee is intentionally superseded by the user-approved updater. Its HTTPS GET client is isolated from recording/storage code and uses only fixed public GitHub release endpoints. It checks size/hash/package/version/signing identity and hands installation to Android's confirming installer. Weekly requests are metadata-only and bound to unmetered Wi-Fi; they default off and cannot run during capture. Recordings are never read by this updater. Other gallery/backup apps may sync shared video under their own permissions.
+## History and limitations
 
-## Limits and retained diagnostics
+Initial candidate tests passed; preview decoding was then tightened to use direct frame extraction exclusively, and the final signed APK above passed all twenty groups again. All candidate build/test logs, previous release reports and screenshots remain local; no diagnostic logs were removed. Historical 1.2.0 installer/network end-to-end evidence is in artifacts/TESTING-1.2.0.md. Updater network/install implementation is unchanged in this release; repeating its entire install integration was unnecessary.
 
-All intermediate logs and earlier release reports remain local. This includes a quoted-Gradle-property test-fixture invocation correction and the publisher's pre-execution syntax-check correction. The final APK differs from the first candidate by tightened Wi-Fi binding, installation-operation exclusion and explicit AV1 platform guarding; the final eighteen-group run tests that exact signed artifact.
-
-Actual H.264 and AV1 playback were exercised; full-resolution HEVC is unavailable on this emulator (512x512 encoder limit). Removable/SD media and physical-phone codec/microphone performance are not established. Frame rate is a target and size is a bitrate estimate, not a guarantee. Android can delay weekly jobs and user installation approval is always required.
-
-
-## Live GitHub updater integration - completed
-
-Published https://github.com/mikeymoo618/ScreenOhRecord/releases/tag/v1.2.0 with the verified signed APK, checksum and update.json. Matching application source is tagged v1.2.0; the main branch additionally records the final integration-test registration and verification notes.
-
-On the same isolated emulator, installed a synthetic older build (1.1.99/code 7) containing the updater and original signing identity. This is only a local test fixture, never a public release. The app's actual Updates screen fetched the live GitHub release, displayed the upgrade, accepted the test user's download approval, downloaded the real public APK, passed validation and reached Android's own Update confirmation. The test approved that system dialog. Installation replaced the instrumented app process, producing an expected framework 'Process crashed' status; it is not counted as a test failure because the pre-install marker and resulting package/hash independently prove completion.
-
-Host inspection confirmed installed versionCode 8/versionName 1.2.0 and pulled its installed base.apk. Its SHA-256 exactly matches the public release d8308b4cb35446d29e852ffe0eb59d00cc6bd3f93f40253813c3871343d865d7. A subsequent test exercised the production foreground Updates screen: it reported the latest published version and verified a private settings marker survived the upgrade. Weekly checks remained disabled. A real opted-in Wi-Fi JobScheduler run then fetched live release metadata without creating/changing an APK download; the test disabled the schedule again afterward.
-
-Evidence: artifacts/live-updater-host-1.2.0-second.log, instrumentation-live-updater-install-1.2.0.log, instrumentation-live-updater-after-install-1.2.0-ui.log, integration-updater-1.2.0.json and verification-1.2.0.json. The image ScreenOhRecord-update-install-Android16.png captures the updater during the install hand-off (a transition frame, not the final system dialog). No physical phone was modified. The integration host allowed installation from this source on the emulator; physical devices still require the Android allow-from-this-source setting when needed.
-
-Retained diagnostic attempts include an ignored extra instrumentation-manifest entry (fixed by explicitly selecting the test runner with the testRunner Gradle property), a direct background instrumentation metadata request that failed DNS while shell/foreground UI succeeded, and the improved error-class/message logging. The final post-upgrade test uses the actual foreground app UI and the actual Wi-Fi job and passes. Production APK code did not change for those harness corrections.
-
-A source rebuild after the dedicated project Git repository was initialized changed only META-INF/version-control-info.textproto, which embeds Git revision metadata. ZIP entry comparison found code/resources and all other payload entries identical. The rebuilt APK is retained separately as ScreenOhRecord-1.2.0-source-rebuild.apk. The local delivered ScreenOhRecord-1.2.0.apk was restored to the exact publicly published/installed artifact; its original hash and all runtime evidence remain valid. No published release asset or version tag was overwritten.
+Actual H.264 and AV1 capture/preview were exercised on the emulator. Device/codec performance, older supported Android versions and removable physical storage are not proven by emulator coverage. The physical S22's earlier package error was separately traced to insufficient internal storage; no package-parsing workaround or unrelated change was introduced. The app still needs Android installation confirmation and sufficient free storage.

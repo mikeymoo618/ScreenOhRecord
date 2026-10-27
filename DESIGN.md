@@ -1,4 +1,4 @@
-# ScreenOhRecord 1.2.0 architecture
+# ScreenOhRecord 1.2.1 architecture
 
 Approved scope/decisions are recorded in RELEASE-PLAN-1.2.0.md and project AGENTS.md. The user approved an independent recorder rather than redistribution of AZ Recorder. Original source, branding and signing key are retained. Personal use, small GitHub release assets and Android 16 verification are the current scope; no ads/analytics/livestreaming/internal-audio mixing/video editor is introduced.
 
@@ -10,7 +10,7 @@ CaptureActivity snapshots settings, obtains runtime permissions and fresh Androi
 
 Default storage is a pending scoped MediaStore item in Movies/ScreenOhRecord. Optional local folders must use com.android.externalstorage.documents and grant persistent access; cloud providers are excluded. Files must be seekable for MP4. Storage failure is explicit, without silent fallback. No broad media/storage permission or library scanning. Private synchronous unfinished/finalized markers enable cleanup without deleting a finalized file after a history-write interruption. History is limited to 50 entries; leaving history does not erase older videos.
 
-The floating specialUse foreground service is explicitly enabled with overlay permission, display/window-context bound and state-change driven. It hides during capture consent and persists its position; no idle capture/polling or boot restart. Delete and Close dispatches DISCARD only for the active session. The encoder is stopped/released, the descriptor closed, and the pending file deleted directly through MediaStore or DocumentsContract. No history publication or trash request occurs. Only a reported successful deletion closes the bubble; errors retain cleanup state and remain visible. Hide bubble alone does not stop recording. Existing saved entries are not affected by DISCARD.
+The floating specialUse foreground service is explicitly enabled with overlay permission, display/window-context bound and state-change driven. It hides during capture consent and persists its position; no idle capture/polling or boot restart. Stop and Delete dispatches DISCARD only for the active session. The encoder is stopped/released, the descriptor closed, and the pending file deleted directly through MediaStore or DocumentsContract. No history publication or trash request occurs. The floating menu remains open on successful deletion and errors; errors retain cleanup state and remain visible. Hide bubble alone does not stop recording. Existing saved entries are not affected by DISCARD.
 
 ## Updater trust boundary
 
@@ -31,3 +31,9 @@ build.ps1 creates a signed release plus checksum with the preserved private .loc
 scripts/publish-release.ps1 requires matching successful verification JSON/hash and a clean-failure-free test log; checks the signature and repo identity; establishes a dedicated project Git repository preserving existing remote history; stages only explicit source paths; pushes source and a version tag; creates a draft Release; uploads the APK/checksum/update.json; and publishes only after upload-size checks. Existing release versions are never overwritten. Git credential-manager credentials stay in memory and are sent only to GitHub's APIs, not written to source/logs. No parent C:\Users\Mike Git repository is staged or pushed.
 
 Framework-only instrumentation covers actual recording/playback, all low bitrates, optional overlays, default/custom-folder permanent discard, AV1, update metadata/checksum/version/signature rejection, scheduling and operation exclusion. Live public-release/download/PackageInstaller testing follows publication. See TESTING.md and local artifacts for exact identity, logs and limitations. Emulator results do not guarantee all phones, hardware codecs/removable media or future Android releases.
+
+## 1.2.1 recording previews and installed version
+
+MainActivity shows the installed PackageInfo version name/long version code as the final root-layout element, refreshing on resume with generated BuildConfig fallback. A version bump therefore appears without editing a separate text label.
+
+RecordingThumbnails uses one worker, scaled MediaMetadataRetriever frames, a 4 MiB LruCache and weak ImageView bindings. Decoding reads only owned/granted local recording URIs; it does not use provider thumbnail APIs that could populate separate on-disk image caches. No preview file or broad media permission is introduced. Row rebuilds invalidate pending requests; request-identity and URI-tag checks prevent late frames from attaching to deleted/rebound views or refilling deleted cache entries. Confirmed deletion invalidates cache/work and clears the image before rebuilding history. Activity destruction cancels work and evicts memory references. An unreadable video keeps a placeholder without blocking the UI.

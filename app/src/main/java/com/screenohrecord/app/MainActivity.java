@@ -22,6 +22,7 @@ import android.widget.ArrayAdapter;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -41,6 +42,8 @@ public final class MainActivity extends Activity {
     private static final int CORAL = Color.rgb(255, 116, 105);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private RecordingStore store;
+    private RecordingThumbnails thumbnails;
+    private TextView versionFooter;
     private TextView stateLabel;
     private TextView timer;
     private TextView description;
@@ -68,6 +71,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         store = new RecordingStore(this);
+        thumbnails = new RecordingThumbnails(this);
         if (!RecordingService.status().active()) store.recoverInterrupted();
         if (savedInstanceState != null) {
             awaitingOverlayGrant = savedInstanceState.getBoolean("awaitingOverlayGrant");
@@ -212,9 +216,15 @@ public final class MainActivity extends Activity {
         folderLabel = text(RecordingOptions.folder(this), 13, MUTED);
         marginAdd(root, folderLabel, 7);
         recordings = column();
+        recordings.setId(R.id.recording_list);
         marginAdd(root, recordings, 14);
-        marginAdd(root, text("v" + BuildConfig.VERSION_NAME + " · Local MP4 · No livestreaming\n" +
+        marginAdd(root, text("Local MP4 \u00b7 No livestreaming\n" +
                 "Other gallery apps may back up files if you enable their cloud sync.", 11, MUTED), 25);
+        versionFooter = text("", 12, MUTED);
+        versionFooter.setId(R.id.app_version_footer);
+        versionFooter.setGravity(Gravity.CENTER);
+        marginAdd(root, versionFooter, 18);
+        refreshVersionFooter();
     }
 
     private void requestRecording() {
@@ -300,37 +310,60 @@ public final class MainActivity extends Activity {
         for (RecordingStore.Entry entry : entries) fingerprint.append(entry.uri).append(entry.bytes);
         if (renderedHistory.equals(fingerprint.toString()) && recordings.getChildCount() > 0) return;
         renderedHistory = fingerprint.toString();
+        thumbnails.cancelPending();
         recordings.removeAllViews();
         if (entries.isEmpty()) {
-            recordings.addView(text("Your recordings will appear here.\nNo account or cloud upload is involved.", 14, MUTED));
+            recordings.addView(text("Your recordings will appear here.\nNo account or cloud upload involved.", 14, MUTED));
             return;
         }
         for (RecordingStore.Entry entry : entries) {
             LinearLayout row = column();
+            row.setTag(entry.uri.toString());
             row.setPadding(dp(16), dp(14), dp(16), dp(14));
             row.setBackground(background(SURFACE, 12));
+            LinearLayout heading = new LinearLayout(this);
+            heading.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView preview = new ImageView(this);
+            preview.setId(R.id.recording_thumbnail);
+            preview.setContentDescription("Preview of " + entry.name);
+            preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            preview.setBackground(background(Color.rgb(50, 69, 73), 8));
+            preview.setClipToOutline(true);
+            heading.addView(preview, new LinearLayout.LayoutParams(dp(96), dp(64)));
+            LinearLayout metadata = column();
+            LinearLayout.LayoutParams metadataLayout = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+            metadataLayout.setMarginStart(dp(12));
+            heading.addView(metadata, metadataLayout);
             TextView name = text(entry.name, 13, INK);
-            row.addView(name);
-            marginAdd(row, text(RecordingConfig.elapsed(entry.duration) + "  ·  " +
+            name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            metadata.addView(name);
+            marginAdd(metadata, text(RecordingConfig.elapsed(entry.duration) + " \u00b7 " +
                     String.format(Locale.ROOT, "%.1f MB", entry.bytes / 1_000_000d), 12, MUTED), 5);
+            row.addView(heading);
+            thumbnails.bind(entry.uri, preview);
             LinearLayout actions = new LinearLayout(this);
             Button open = button("Play", Color.rgb(50, 69, 73), INK);
+            open.setId(R.id.recording_play);
             open.setOnClickListener(view -> open(entry));
             actions.addView(open, new LinearLayout.LayoutParams(0, dp(44), 1));
             Button remove = button("Delete", Color.TRANSPARENT, CORAL);
+            remove.setId(R.id.recording_delete);
             remove.setOnClickListener(view -> new AlertDialog.Builder(this)
-                    .setTitle("Delete this recording?").setMessage(entry.name)
+                    .setTitle("Delete recording?").setMessage(entry.name)
                     .setNegativeButton("Keep", null)
                     .setPositiveButton("Delete", (dialog, which) -> {
-                        try { store.delete(entry); refreshRecordings(); }
-                        catch (RuntimeException error) { toast("Could not delete the video. It may have moved."); }
+                        try {
+                            store.delete(entry);
+                            thumbnails.forget(entry.uri);
+                            RecordingThumbnails.clear(preview);
+                            refreshRecordings();
+                        } catch (RuntimeException error) { toast("Could not delete video. It may have been moved."); }
                     }).show());
             actions.addView(remove, new LinearLayout.LayoutParams(0, dp(44), 1));
             marginAdd(row, actions, 10);
             marginAdd(recordings, row, 8);
         }
     }
-
     private void open(RecordingStore.Entry entry) {
         Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(entry.uri, "video/mp4")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -382,6 +415,7 @@ public final class MainActivity extends Activity {
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
     @Override protected void onResume() {
         super.onResume();
+        refreshVersionFooter();
         syncingOptions = true;
         SharedPreferences options = RecordingOptions.get(this);
         microphone.setChecked(options.getBoolean("microphone", true));
@@ -397,5 +431,20 @@ public final class MainActivity extends Activity {
     private void refreshOptionsSummary() {
         if (optionsSummary != null) optionsSummary.setText(RecordingOptions.summary(this));
         if (folderLabel != null) folderLabel.setText(RecordingOptions.folder(this));
+    }
+    @Override protected void onDestroy() {
+        handler.removeCallbacks(refresh);
+        if (thumbnails != null) thumbnails.close();
+        super.onDestroy();
+    }
+    private void refreshVersionFooter() {
+        if (versionFooter == null) return;
+        String name = BuildConfig.VERSION_NAME;
+        long code = BuildConfig.VERSION_CODE;
+        try {
+            android.content.pm.PackageInfo installed = getPackageManager().getPackageInfo(getPackageName(), 0);
+            name = installed.versionName; code = installed.getLongVersionCode();
+        } catch (android.content.pm.PackageManager.NameNotFoundException ignored) { }
+        versionFooter.setText("ScreenOhRecord " + name + " · build " + code);
     }
 }

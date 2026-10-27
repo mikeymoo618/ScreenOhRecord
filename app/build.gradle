@@ -15,8 +15,8 @@ android {
         applicationId 'com.screenohrecord.app'
         minSdk 29
         targetSdk 36
-        versionCode 8
-        versionName '1.2.0'
+        versionCode 9
+        versionName '1.2.1'
         if (project.hasProperty('appVersionCode')) versionCode project.property('appVersionCode').toInteger()
         if (project.hasProperty('appVersionName')) versionName project.property('appVersionName')
         testInstrumentationRunner 'com.screenohrecord.app.PrivacyTestRunner'

@@ -54,7 +54,7 @@ public final class FloatingControlsService extends Service {
     private Button stop;
     private Context windowContext;
     private boolean expanded;
-    private boolean closeAfterDiscard;
+    private boolean pendingDiscard;
     private boolean dragging;
     private boolean rightEdge = true;
     private int appliedX = Integer.MIN_VALUE, appliedY = Integer.MIN_VALUE, appliedWidth, appliedHeight;
@@ -159,10 +159,10 @@ public final class FloatingControlsService extends Service {
                 ? RecordingService.RESUME : RecordingService.PAUSE));
         stop = control("Stop & save", R.id.floating_stop, Color.rgb(255, 116, 105));
         stop.setOnClickListener(view -> command(RecordingService.STOP));
-        Button discard = control("Delete and Close", R.id.floating_discard, Color.rgb(255, 116, 105));
+        Button discard = control("Stop and Delete", R.id.floating_discard, Color.rgb(255, 116, 105));
         discard.setOnClickListener(view -> {
             if (!RecordingService.status().active()) return;
-            closeAfterDiscard = true;
+            pendingDiscard = true;
             command(RecordingService.DISCARD);
         });
         Button hide = control("Hide bubble", R.id.floating_hide, Color.rgb(174, 193, 193));
@@ -244,9 +244,8 @@ public final class FloatingControlsService extends Service {
     private void refresh() {
         if (root == null || !visible) return;
         RecordingService.Status current = RecordingService.status();
-        if (closeAfterDiscard && !current.active()) {
-            closeAfterDiscard = false;
-            if ("Recording permanently deleted".equals(current.message)) { stopSelf(); return; }
+        if (pendingDiscard && !current.active()) {
+            pendingDiscard = false;
             Toast.makeText(this, current.message, Toast.LENGTH_LONG).show();
         }
         boolean requesting = CaptureActivity.isRequestActive();
