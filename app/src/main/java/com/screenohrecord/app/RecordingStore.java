@@ -26,6 +26,8 @@ import java.util.Locale;
 /** Owns only files created by this app. No media-reading permission is needed. */
 @SuppressLint("ApplySharedPref") // Recovery markers must reach disk before capture/process exit.
 final class RecordingStore {
+    private static final Object HISTORY_LOCK = new Object();
+    enum Availability { PRESENT, MISSING, UNAVAILABLE }
     static final String FOLDER = Environment.DIRECTORY_MOVIES + "/ScreenOhRecord/";
     private final Context context;
     private final SharedPreferences preferences;
@@ -127,14 +129,16 @@ final class RecordingStore {
             item.put("name", output.name);
             item.put("bytes", Math.max(0, bytes));
             item.put("duration", Math.max(0, duration));
-            JSONArray old = history();
-            JSONArray updated = new JSONArray();
-            updated.put(item);
-            // Display history is bounded; older video files are never deleted here.
-            for (int i = 0; i < Math.min(old.length(), 49); i++) updated.put(old.get(i));
-            if (!preferences.edit().putString("history", updated.toString())
-                    .remove("unfinished").remove("finalized_document").commit()) {
-                throw new IOException("Video saved, but its recent-recordings entry could not be stored");
+            synchronized (HISTORY_LOCK) {
+                JSONArray old = history();
+                JSONArray updated = new JSONArray();
+                updated.put(item);
+                // Display history is bounded; older video files are never deleted here.
+                for (int i = 0; i < Math.min(old.length(), 49); i++) updated.put(old.get(i));
+                if (!preferences.edit().putString("history", updated.toString())
+                        .remove("unfinished").remove("finalized_document").commit()) {
+                    throw new IOException("Video saved, but its recent-recordings entry could not be stored");
+                }
             }
         } catch (JSONException error) {
             throw new IOException("Video saved, but its recent-recordings entry could not be stored", error);
@@ -200,19 +204,85 @@ final class RecordingStore {
         return result;
     }
 
-    void delete(Entry entry) {
-        if (SettingsActivity.LOCAL_AUTHORITY.equals(entry.uri.getAuthority())) {
-            try {
-                if (!DocumentsContract.deleteDocument(context.getContentResolver(), entry.uri))
-                    throw new IllegalStateException("Cannot delete recording");
-            } catch (IOException error) { throw new IllegalStateException("Cannot delete recording", error); }
-        } else context.getContentResolver().delete(entry.uri, null, null);
-        JSONArray old = history();
-        JSONArray updated = new JSONArray();
-        for (int i = 0; i < old.length(); i++) {
-            JSONObject item = old.optJSONObject(i);
-            if (item != null && !entry.uri.toString().equals(item.optString("uri"))) updated.put(item);
+    /** Empty results only count as missing while the local storage/provider is accessible. */
+    Availability availability(Entry entry) {
+        String state = Environment.getExternalStorageState();
+        if (!Environment.MEDIA_MOUNTED.equals(state) && !Environment.MEDIA_MOUNTED_READ_ONLY.equals(state))
+            return Availability.UNAVAILABLE;
+        boolean document = SettingsActivity.LOCAL_AUTHORITY.equals(entry.uri.getAuthority());
+        if (!document && !"media".equals(entry.uri.getAuthority())) return Availability.UNAVAILABLE;
+        try {
+            if (document) {
+                Uri parent = DocumentsContract.buildDocumentUriUsingTree(entry.uri,
+                        DocumentsContract.getTreeDocumentId(entry.uri));
+                try (Cursor cursor = context.getContentResolver().query(parent,
+                        new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                    if (cursor == null || !cursor.moveToFirst()) return Availability.UNAVAILABLE;
+                }
+                // Enumerating the accessible destination distinguishes a missing document from
+                // providers that return null/throw for an individual missing-document query.
+                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(entry.uri,
+                        DocumentsContract.getTreeDocumentId(entry.uri));
+                String id = DocumentsContract.getDocumentId(entry.uri);
+                try (Cursor cursor = context.getContentResolver().query(children,
+                        new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                    if (cursor == null) return Availability.UNAVAILABLE;
+                    while (cursor.moveToNext()) {
+                        if (id.equals(cursor.getString(0))) return Availability.PRESENT;
+                    }
+                    return Availability.MISSING;
+                }
+            }
+            try (Cursor cursor = context.getContentResolver().query(entry.uri,
+                    new String[]{MediaStore.Video.Media._ID},
+                    null, null, null)) {
+                if (cursor == null) return Availability.UNAVAILABLE;
+                return cursor.moveToFirst() ? Availability.PRESENT : Availability.MISSING;
+            }
+        } catch (RuntimeException error) {
+            // Revoked access and provider failures do not prove that a recording was deleted.
+            return Availability.UNAVAILABLE;
         }
-        preferences.edit().putString("history", updated.toString()).apply();
+    }
+
+    List<Uri> pruneMissing() {
+        List<Uri> removed = new ArrayList<>();
+        for (Entry entry : entries()) {
+            if (availability(entry) == Availability.MISSING) {
+                forget(entry);
+                removed.add(entry.uri);
+            }
+        }
+        return removed;
+    }
+
+    void delete(Entry entry) {
+        if (availability(entry) == Availability.MISSING) { forget(entry); return; }
+        try {
+            if (SettingsActivity.LOCAL_AUTHORITY.equals(entry.uri.getAuthority())) {
+                try {
+                    if (!DocumentsContract.deleteDocument(context.getContentResolver(), entry.uri))
+                        throw new IllegalStateException("Cannot delete recording");
+                } catch (IOException error) { throw new IllegalStateException("Cannot delete recording", error); }
+            } else if (context.getContentResolver().delete(entry.uri, null, null) == 0
+                    && availability(entry) != Availability.MISSING) {
+                throw new IllegalStateException("Cannot delete recording");
+            }
+        } catch (RuntimeException error) {
+            if (availability(entry) != Availability.MISSING) throw error;
+        }
+        forget(entry);
+    }
+
+    private void forget(Entry entry) {
+        synchronized (HISTORY_LOCK) {
+            JSONArray old = history();
+            JSONArray updated = new JSONArray();
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item != null && !entry.uri.toString().equals(item.optString("uri"))) updated.put(item);
+            }
+            preferences.edit().putString("history", updated.toString()).apply();
+        }
     }
 }

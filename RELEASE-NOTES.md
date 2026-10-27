@@ -1,9 +1,8 @@
-# ScreenOhRecord 1.2.1
+# ScreenOhRecord 1.2.2
 
-- Shows the installed version and build number on the final line of the main screen, refreshed automatically from Android package information.
-- Adds small thumbnails beside saved recordings. Preview generation runs in the background and uses memory only; no extra thumbnail files accumulate on storage.
-- Deleting a saved recording immediately removes its row and preview, evicts its cached frame, and cancels pending preview loads so they cannot reappear.
-- Renames the floating action to Stop and Delete. It permanently discards the active recording without recycling it and keeps the floating menu open for another recording.
-- Preserves existing settings, recordings, signing identity, AV1/HEVC options and GitHub updater. Weekly checks remain optional and off until enabled. No new permissions, ads, analytics or uploads are introduced.
+- Refreshes saved-recording history against local storage when opening or returning to the app. Confirmed missing files and their thumbnails disappear from the list.
+- Delete clears an already-missing recording instead of leaving an unremovable entry, including when a file disappears while its Delete confirmation is open.
+- Keeps history when a folder is inaccessible, storage is unavailable, or folder permission is revoked. Cleanup never deletes an existing video.
+- Preserves signing identity, recording settings, floating controls and updater. No permissions or dependencies added.
 
-Install over the previous version. Devices with App updates can obtain the release there. Android still asks for installation confirmation and needs sufficient free internal storage. Tests and limitations are documented in TESTING.md.
+Install over the previous version without uninstalling. This release does not establish the cause of the previously reported Google Play Protect warning or provide Play Protect clearance. See TESTING.md for evidence and limitations.

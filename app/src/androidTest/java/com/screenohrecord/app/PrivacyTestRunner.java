@@ -433,6 +433,7 @@ public final class PrivacyTestRunner extends Instrumentation {
         store.recoverInterrupted();
         verifyLatestVideo(true);
         testHistoryPreviews(main, video);
+        testExternalDeletion(main);
         boolean deleted = false;
         try (ParcelFileDescriptor ignored = getTargetContext().getContentResolver().openFileDescriptor(video.uri, "r")) { }
         catch (java.io.FileNotFoundException expected) { deleted = true; }
@@ -441,8 +442,17 @@ public final class PrivacyTestRunner extends Instrumentation {
             deleted = expected.getMessage() != null && expected.getMessage().contains("Missing file");
         }
         check(deleted, "Local-folder deletion left the video behind");
+        RecordingStore.Entry inaccessible = historyFixture(store);
         getTargetContext().getContentResolver().releasePersistableUriPermission(tree,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        check(store.availability(inaccessible) == RecordingStore.Availability.UNAVAILABLE,
+                "Revoked storage permission mistaken for deletion");
+        check(!store.pruneMissing().contains(inaccessible.uri), "Revoked-access recording pruned");
+        try { store.delete(inaccessible); throw new AssertionError("Revoked-access deletion unexpectedly succeeded"); }
+        catch (RuntimeException expected) { }
+        check(store.entries().stream().anyMatch(item -> item.uri.equals(inaccessible.uri)),
+                "Failed deletion removed inaccessible recording history");
+        append("PASS: revoked-folder access preserves history during reconciliation and failed deletion");
         boolean denied = false;
         try { RecordingStore.Output unexpected = store.create(); unexpected.descriptor.close(); store.discard(unexpected.uri); }
         catch (IOException | SecurityException expected) { denied = true; }
@@ -468,6 +478,68 @@ public final class PrivacyTestRunner extends Instrumentation {
         deleteWithFloatingControls(main);
         testAv1(main);
         testHistoryPreviews(main, new RecordingStore(getTargetContext()).entries().get(0));
+        testExternalDeletion(main);
+    }
+
+    private RecordingStore.Entry historyFixture(RecordingStore store) throws Exception {
+        RecordingStore.Output output = store.create();
+        output.descriptor.close();
+        store.complete(output, 0, 0);
+        return store.entries().stream().filter(item -> item.uri.equals(output.uri)).findFirst().get();
+    }
+
+    private void deleteOutsideApp(RecordingStore.Entry entry) throws Exception {
+        if (SettingsActivity.LOCAL_AUTHORITY.equals(entry.uri.getAuthority())) {
+            check(android.provider.DocumentsContract.deleteDocument(getTargetContext().getContentResolver(), entry.uri),
+                    "External document deletion failed");
+        } else check(getTargetContext().getContentResolver().delete(entry.uri, null, null) == 1,
+                "External MediaStore deletion failed");
+    }
+
+    private void testExternalDeletion(Activity main) throws Exception {
+        final Activity screen = bringMainToFront(main);
+        RecordingStore store = new RecordingStore(getTargetContext());
+        RecordingStore.Entry stale = historyFixture(store);
+        SystemClock.sleep(1200);
+        runOnMainSync(() -> {
+            android.view.View row = recordingRow(screen, stale.uri.toString());
+            check(row != null, "Missing external-deletion fixture row");
+            row.findViewById(R.id.recording_delete).performClick();
+        });
+        // Reproduce a file disappearing after the user opened its Delete confirmation.
+        deleteOutsideApp(stale);
+        clickSystemText("Delete");
+        SystemClock.sleep(1000);
+        check(store.entries().stream().noneMatch(item -> item.uri.equals(stale.uri)),
+                "Already-missing video cannot be removed through Delete");
+        runOnMainSync(() -> check(recordingRow(screen, stale.uri.toString()) == null,
+                "Already-missing video's row remains after Delete"));
+
+        RecordingStore.Entry intact = historyFixture(store);
+        RecordingStore.Entry removed = historyFixture(store);
+        SystemClock.sleep(1200);
+        shell("input keyevent KEYCODE_HOME");
+        deleteOutsideApp(removed);
+        bringMainToFront(screen);
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        while (store.entries().stream().anyMatch(item -> item.uri.equals(removed.uri))
+                && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(store.entries().stream().noneMatch(item -> item.uri.equals(removed.uri)),
+                "Returning to app retained externally deleted video");
+        boolean[] rowRemoved = {false};
+        while (!rowRemoved[0] && SystemClock.elapsedRealtime() < deadline) {
+            runOnMainSync(() -> rowRemoved[0] = recordingRow(screen, removed.uri.toString()) == null);
+            if (!rowRemoved[0]) SystemClock.sleep(100);
+        }
+        runOnMainSync(() -> {
+            check(recordingRow(screen, removed.uri.toString()) == null, "Stale row remains after resume");
+            check(recordingRow(screen, intact.uri.toString()) != null, "Existing recording removed during cleanup");
+        });
+        check(store.availability(intact) == RecordingStore.Availability.PRESENT,
+                "Cleanup changed existing recording");
+        store.delete(intact);
+        append("PASS: " + stale.uri.getAuthority()
+                + " external deletion on resume, already-missing Delete, intact-file preservation");
     }
 
     private android.view.View recordingRow(Activity activity, String key) {

@@ -1,8 +1,8 @@
-# ScreenOhRecord 1.2.1
+# ScreenOhRecord 1.2.2
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming, screen-text analysis or recording uploads. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
 
-**Version 1.2.1 adds recording thumbnails, a final installed-version footer, and Stop and Delete that keeps floating controls open. Version 1.2.0 introduced AV1 and the GitHub updater. The updater requires internet access; the earlier no-INTERNET permission guarantee no longer applies. Recording remains local.** Network code is isolated to public GitHub update metadata/APK downloads and does not access recordings.
+**Version 1.2.2 removes confirmed missing recordings from history when opening or returning to the app. Delete also clears an already-missing recording. Temporary storage or permission failures preserve history.** Version 1.2.1 added recording thumbnails, a final installed-version footer, and Stop and Delete that keeps floating controls open. Version 1.2.0 introduced AV1 and the GitHub updater. The updater requires internet access; the earlier no-INTERNET permission guarantee no longer applies. Recording remains local. Network code is isolated to public GitHub update metadata/APK downloads and does not access recordings.
 
 ## Install and update
 

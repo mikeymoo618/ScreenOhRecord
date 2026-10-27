@@ -1,3 +1,29 @@
+# ScreenOhRecord 1.2.2 verification
+
+Validated on 2026-10-27 using only the task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified.
+
+- Package com.screenohrecord.app; version 1.2.2/build 10; min SDK 29, target 36.
+- Signed APK: artifacts/ScreenOhRecord-1.2.2.apk, 125,328 bytes.
+- SHA-256: df4c958f8c4fdf10aec1aee1be3c5f49a9e5dcd14ed445248086dcfd49071714.
+- Preserved certificate SHA-256: 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8. Signature v2 verification passed; signed emulator upgrade succeeded.
+- Release build/lint passed: artifacts/build-1.2.2-final.log. Zero errors, 32 warnings. Harness build: artifacts/build-test-1.2.2-final.log.
+- Final runtime log: artifacts/instrumentation-release-1.2.2-final.log. All 23 unique groups passed with no FAIL/crash markers. Progress and summary duplicates are not extra tests. Evidence/identity: artifacts/verification-1.2.2.json.
+- Packaged permissions match 1.2.1 exactly. No new runtime dependencies, native libraries, test code or ad SDKs introduced.
+
+## New behavior verified
+
+For both MediaStore and the local document-provider destination, an outside deletion while the Delete confirmation is open clears the history entry and row when confirmed. Deleting another fixture while the app is away causes resume reconciliation to remove it, while an intact fixture remains available. Revoking the custom-folder grant produces UNAVAILABLE, preserves history during pruning, and preserves it after failed deletion. Existing recording thumbnails, deletion/cache cancellation, floating controls, recording/audio/AV1/low-bitrate and updater validation groups also passed.
+
+The first runtime run caught an assertion racing the asynchronous UI refresh; the harness now waits for the row to disappear. Its complete log and crash output are retained, along with the initial sandbox Gradle-cache denial and emulator attempts. No failed attempt is counted as release verification.
+
+## Limits
+
+These emulator tests do not establish physical Samsung S22 behavior, all removable-storage/provider failure modes, future Android compatibility or Google Play Protect clearance. The previously reported Play Protect classification remains unexplained. Unknown availability retains history; reconciliation runs on resume rather than monitoring storage continuously. Cleanup changes history only and does not remove intact video files.
+
+---
+
+## Historical 1.2.1 verification
+
 # Verification - ScreenOhRecord 1.2.1
 
 Executed 2026-10-27 on the task-owned ScreenOhRecord16 Android 16/API 36 x86_64 emulator. This change did not modify the physical Galaxy S22 or its recordings.

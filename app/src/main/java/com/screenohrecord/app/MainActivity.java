@@ -43,6 +43,8 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private RecordingStore store;
     private RecordingThumbnails thumbnails;
+    private final java.util.concurrent.ExecutorService historyWorker =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
     private TextView versionFooter;
     private TextView stateLabel;
     private TextView timer;
@@ -311,6 +313,10 @@ public final class MainActivity extends Activity {
         if (renderedHistory.equals(fingerprint.toString()) && recordings.getChildCount() > 0) return;
         renderedHistory = fingerprint.toString();
         thumbnails.cancelPending();
+        for (int i = 0; i < recordings.getChildCount(); i++) {
+            ImageView oldPreview = recordings.getChildAt(i).findViewById(R.id.recording_thumbnail);
+            if (oldPreview != null) RecordingThumbnails.clear(oldPreview);
+        }
         recordings.removeAllViews();
         if (entries.isEmpty()) {
             recordings.addView(text("Your recordings will appear here.\nNo account or cloud upload involved.", 14, MUTED));
@@ -423,6 +429,14 @@ public final class MainActivity extends Activity {
         syncingOptions = false;
         refreshOptionsSummary();
         completeOverlayRequest();
+        historyWorker.execute(() -> {
+            List<Uri> removed = store.pruneMissing();
+            handler.post(() -> {
+                if (isDestroyed()) return;
+                for (Uri uri : removed) thumbnails.forget(uri);
+                refreshRecordings();
+            });
+        });
         handler.removeCallbacks(refresh); handler.post(refresh);
     }
     @Override protected void onPause() {
@@ -435,6 +449,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         handler.removeCallbacks(refresh);
         if (thumbnails != null) thumbnails.close();
+        historyWorker.shutdownNow();
         super.onDestroy();
     }
     private void refreshVersionFooter() {

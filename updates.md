@@ -1,5 +1,14 @@
 # Updates
 
+## 2026-10-27 — 1.2.2 recording-history reconciliation
+
+- Checks saved recording URIs on a background worker when MainActivity resumes, removing only confirmed missing entries and evicting their memory-only thumbnails.
+- Custom-folder checks confirm access to the destination and enumerate its children; null cursors, storage unavailability and permission failures preserve history.
+- Makes saved-video deletion tolerate an already-missing file, including disappearance while the confirmation is open. Failed deletion of an inaccessible file retains its entry.
+- Serializes history changes across reconciliation and recording completion to avoid losing newly saved entries.
+- Adds Android 16 instrumentation for external deletion, resume cleanup, already-missing Delete, intact-file preservation and revoked-access retention for both storage paths where applicable.
+- Version 1.2.2/build 10; final verification and artifact identity are recorded in TESTING.md and local artifacts. Earlier failed build/emulator/test logs are retained.
+
 ## 2026-10-27 — 1.1.1 completed verification and handoff
 
 - Resumed after the usage-limit interruption; confirmed the final signed APK and all eight passing Android 16 test groups were intact.
