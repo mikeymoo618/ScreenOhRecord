@@ -1,5 +1,14 @@
 # Updates
 
+## 2026-10-30 — 1.2.4 Stop and Restart
+
+- Adds Stop and Restart to the floating menu during recording or pause. It discards the active output and automatically requests fresh Android capture consent with current recording settings.
+- Uses an explicit successful-deletion result from RecordingService; deletion failure reports the error, preserves the recovery marker and keeps the floating menu open without starting a new capture.
+- Defers the new consent launch until the old stop/delete callback has returned, rejects duplicate restart taps and does not reuse projection tokens. Cancelling fresh consent leaves the recorder idle.
+- Adds emulator coverage for restart from paused/recording states, permanent deletion, new output and retained settings, cancelled consent, updater exclusion and permission-revocation deletion failure/recovery.
+- Local emulator tests now run through `.testing/run-bounded-release-tests.ps1`, which aborts if a diagnostic log exceeds 8 MiB, limits the run to 15 minutes and stops task-owned emulator processes on exit. Failed attempts and full diagnostic logs are retained.
+- Version 1.2.4/build 12. Final runtime and artifact identity are recorded in TESTING.md and local artifacts.
+
 ## 2026-10-27 — 1.2.3 automatic floating controls
 
 - Shows floating controls on main-screen resume when overlay permission is enabled and the bubble is absent. No recording starts automatically.

@@ -355,6 +355,114 @@ public final class PrivacyTestRunner extends Instrumentation {
         append("PASS: Stop and Delete permanently removes active " + android.net.Uri.parse(uri).getAuthority()
                 + " output, keeps history unchanged, leaves floating menu open and excludes updater network access");
         overlayClick("floating_hide"); awaitBubble(false);
+        testRestartWithFloatingControls(main);
+    }
+
+    private void awaitRestartConsent() {
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        while (!CaptureActivity.isRequestActive() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(CaptureActivity.isRequestActive(), "Restart did not request fresh Android capture consent");
+        check(!RecordingService.status().active(), "New capture began before consent");
+        check(!UpdateClient.begin(), "Updater gate opened during restart consent");
+    }
+
+    private String activeOutputUri() {
+        String uri = getTargetContext().getSharedPreferences("local_recordings", 0).getString("unfinished", null);
+        check(uri != null, "Recording has no owned output");
+        return uri;
+    }
+
+    private void assertRecordingGone(String uri) throws Exception {
+        boolean missing = false;
+        try (ParcelFileDescriptor ignored = getTargetContext().getContentResolver().openFileDescriptor(android.net.Uri.parse(uri), "r")) { }
+        catch (java.io.FileNotFoundException expected) { missing = true; }
+        catch (IllegalArgumentException expected) { missing = expected.getMessage() != null && expected.getMessage().contains("Missing file"); }
+        check(missing, "Discarded recording still opens: " + uri);
+    }
+
+    private void testRestartWithFloatingControls(Activity main) throws Exception {
+        shell("input keyevent KEYCODE_HOME");
+        main = bringMainToFront(main); awaitBubble(true);
+        RecordingStore store = new RecordingStore(getTargetContext());
+        int before = store.entries().size();
+        android.content.SharedPreferences options = RecordingOptions.get(getTargetContext());
+        int quality = options.getInt("quality", 720), fps = options.getInt("fps", 15);
+        String codec = RecordingOptions.codec(getTargetContext());
+        overlayClick("floating_bubble"); overlayClick("floating_start"); consent(true);
+        awaitState(RecordingService.State.RECORDING); awaitRequestFinished(); SystemClock.sleep(1600);
+        String oldUri = activeOutputUri();
+        overlayClick("floating_bubble"); overlayClick("floating_pause"); awaitState(RecordingService.State.PAUSED);
+        check("Stop and Restart".contentEquals(overlayNode("floating_restart").getText()), "Restart action label missing");
+        overlayClick("floating_restart"); awaitRestartConsent();
+        check(RecordingService.status().discardSucceeded, "Restart did not confirm deletion");
+        assertRecordingGone(oldUri);
+        check(store.entries().size() == before, "Restart published discarded recording in history");
+        check(!getTargetContext().getSharedPreferences("local_recordings", 0).contains("unfinished"),
+                "Restart retained old recovery marker before consent");
+        consent(true); awaitState(RecordingService.State.RECORDING); awaitRequestFinished();
+        String freshUri = activeOutputUri();
+        check(!oldUri.equals(freshUri), "Restart reused old output URI");
+        SystemClock.sleep(3000); notificationAction("Stop"); awaitState(RecordingService.State.IDLE);
+        RecordingStore.Entry saved = store.entries().get(0);
+        check(saved.uri.toString().equals(freshUri) && store.entries().size() == Math.min(50, before + 1),
+                "Restart did not save exactly the fresh output");
+        verifyLatestVideo(options.getBoolean("microphone", true));
+        verifyEncoding(saved, "av1".equals(codec) ? "video/av01" : "hevc".equals(codec) ? "video/hevc" : "video/avc", quality, fps);
+        store.delete(saved);
+        int afterSavedCleanup = store.entries().size();
+
+        // Exercise the action while actively recording and cancel its fresh consent.
+        overlayClick("floating_bubble"); overlayClick("floating_start"); consent(true);
+        awaitState(RecordingService.State.RECORDING); awaitRequestFinished(); SystemClock.sleep(1600);
+        String cancelledUri = activeOutputUri();
+        overlayClick("floating_bubble"); overlayClick("floating_restart"); awaitRestartConsent();
+        assertRecordingGone(cancelledUri);
+        consent(false); awaitRequestFinished(); awaitState(RecordingService.State.IDLE); awaitBubble(true);
+        SystemClock.sleep(700);
+        check(!CaptureActivity.isRequestActive() && !RecordingService.status().active(), "Cancelled restart retried or began recording");
+        check(store.entries().size() == afterSavedCleanup, "Cancelled restart changed recording history");
+        check(!getTargetContext().getSharedPreferences("local_recordings", 0).contains("unfinished"), "Cancelled restart left an output marker");
+        overlayClick("floating_bubble"); overlayClick("floating_hide"); awaitBubble(false);
+        append("PASS: " + android.net.Uri.parse(oldUri).getAuthority()
+                + " Stop and Restart from paused/recording, permanent deletion, fresh consent/output, retained settings, cancellation and updater exclusion");
+    }
+
+    private void testRestartDeletionFailure(Activity main, android.net.Uri tree) throws Exception {
+        main = bringMainToFront(main); awaitStart(main);
+        tap(main, R.id.start_recording); consent(true);
+        awaitState(RecordingService.State.RECORDING); awaitRequestFinished(); SystemClock.sleep(1600);
+        String uri = activeOutputUri();
+        getTargetContext().getContentResolver().releasePersistableUriPermission(tree,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        overlayClick("floating_bubble"); overlayClick("floating_restart"); awaitState(RecordingService.State.IDLE);
+        SystemClock.sleep(1000);
+        check(!RecordingService.status().discardSucceeded && !CaptureActivity.isRequestActive(),
+                "Failed deletion requested a new capture");
+        check(uri.equals(activeOutputUri()), "Failed deletion lost recovery marker");
+        check(RecordingService.status().message.contains("Could not delete"), "Deletion failure not reported");
+        check(overlayNode("floating_start").isVisibleToUser(), "Deletion failure closed floating menu");
+        overlayClick("floating_hide"); awaitBubble(false);
+
+        // Restore the grant through Android's real folder picker, then clean only our failed fixture.
+        main = bringMainToFront(main); awaitStart(main); tap(main, R.id.recording_settings);
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        while ((settingsActivity == null || !settingsActivity.hasWindowFocus()) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(settingsActivity != null && settingsActivity.hasWindowFocus(), "Recovery settings not visible");
+        runOnMainSync(() -> settingsActivity.findViewById(R.id.settings_folder).performClick());
+        clickSystemText("ScreenOhRecordSettingsTest"); clickSystemText("Use this folder"); clickSystemText("Allow");
+        new RecordingStore(getTargetContext()).recoverInterrupted();
+        check(!getTargetContext().getSharedPreferences("local_recordings", 0).contains("unfinished"), "Restored permission did not clean failed fixture");
+        assertRecordingGone(uri);
+        // A folder-picker result also carries a temporary grant tied to its task.
+        // End that task so the later persistent-grant revocation test has no
+        // remaining temporary permission masking its result.
+        Activity grantHost = settingsActivity;
+        runOnMainSync(grantHost::finishAndRemoveTask);
+        deadline = SystemClock.elapsedRealtime() + 8000;
+        while (!grantHost.isDestroyed() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(grantHost.isDestroyed(), "Folder grant task did not finish");
+        bringMainToFront(main);
+        append("PASS: Stop and Restart deletion failure blocks new consent, retains cleanup marker/menu, and recovers after folder permission restored");
     }
 
     private void testAv1(Activity main) throws Exception {
@@ -456,11 +564,12 @@ public final class PrivacyTestRunner extends Instrumentation {
             deleted = expected.getMessage() != null && expected.getMessage().contains("Missing file");
         }
         check(deleted, "Local-folder deletion left the video behind");
+        testRestartDeletionFailure(main, tree);
         RecordingStore.Entry inaccessible = historyFixture(store);
         getTargetContext().getContentResolver().releasePersistableUriPermission(tree,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         check(store.availability(inaccessible) == RecordingStore.Availability.UNAVAILABLE,
-                "Revoked storage permission mistaken for deletion");
+                "Revoked storage permission mistaken for deletion: " + store.availability(inaccessible));
         check(!store.pruneMissing().contains(inaccessible.uri), "Revoked-access recording pruned");
         try { store.delete(inaccessible); throw new AssertionError("Revoked-access deletion unexpectedly succeeded"); }
         catch (RuntimeException expected) { }
@@ -918,10 +1027,20 @@ public final class PrivacyTestRunner extends Instrumentation {
     }
 
     private void overlayClick(String id) {
-        AccessibilityNodeInfo node = overlayNode(id);
-        try { check(node.performAction(AccessibilityNodeInfo.ACTION_CLICK), "Floating control click failed: " + id); }
-        finally { node.recycle(); }
-        SystemClock.sleep(250);
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        do {
+            AccessibilityNodeInfo node = overlayNode(id);
+            try {
+                // Layout updates can invalidate an accessibility node between lookup
+                // and dispatch. Retry only rejected clicks, never an accepted action.
+                if (node.isEnabled() && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    SystemClock.sleep(250);
+                    return;
+                }
+            } finally { node.recycle(); }
+            SystemClock.sleep(100);
+        } while (SystemClock.elapsedRealtime() < deadline);
+        throw new AssertionError("Floating control click failed: " + id);
     }
 
     private void drag(int x, int y, int endX, int endY) {

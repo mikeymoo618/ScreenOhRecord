@@ -55,6 +55,7 @@ public final class FloatingControlsService extends Service {
     private Context windowContext;
     private boolean expanded;
     private boolean pendingDiscard;
+    private boolean pendingRestart;
     private boolean dragging;
     private boolean rightEdge = true;
     private int appliedX = Integer.MIN_VALUE, appliedY = Integer.MIN_VALUE, appliedWidth, appliedHeight;
@@ -165,6 +166,15 @@ public final class FloatingControlsService extends Service {
             pendingDiscard = true;
             command(RecordingService.DISCARD);
         });
+        Button restart = control("Stop and Restart", R.id.floating_restart, Color.rgb(199, 223, 218));
+        restart.setOnClickListener(view -> {
+            RecordingService.State state = RecordingService.status().state;
+            if ((state != RecordingService.State.RECORDING && state != RecordingService.State.PAUSED)
+                    || pendingRestart || pendingDiscard) return;
+            pendingRestart = true;
+            command(RecordingService.DISCARD);
+            refresh();
+        });
         Button hide = control("Hide bubble", R.id.floating_hide, Color.rgb(174, 193, 193));
         hide.setOnClickListener(view -> stopSelf());
         LinearLayout.LayoutParams panelLayout = new LinearLayout.LayoutParams(dp(252), LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -244,6 +254,21 @@ public final class FloatingControlsService extends Service {
     private void refresh() {
         if (root == null || !visible) return;
         RecordingService.Status current = RecordingService.status();
+        if (pendingRestart && !current.active()) {
+            pendingRestart = false;
+            if (current.discardSucceeded) {
+                // Run after the old service's finish/stopSelf call has returned. A new
+                // projection requires fresh Android consent; never reuse its old token.
+                handler.post(() -> {
+                    if (!visible || root == null || !Settings.canDrawOverlays(this)
+                            || RecordingService.status().active() || CaptureActivity.isRequestActive()) return;
+                    expanded = false;
+                    android.content.SharedPreferences options = RecordingOptions.get(this);
+                    CaptureActivity.launch(this, options.getBoolean("microphone", true), options.getInt("quality", 720));
+                    refresh();
+                });
+            } else Toast.makeText(this, current.message, Toast.LENGTH_LONG).show();
+        }
         if (pendingDiscard && !current.active()) {
             pendingDiscard = false;
             Toast.makeText(this, current.message, Toast.LENGTH_LONG).show();
@@ -257,7 +282,8 @@ public final class FloatingControlsService extends Service {
                 : "ScreenOhRecord · ready");
         start.setVisibility(current.active() ? View.GONE : View.VISIBLE);
         start.setEnabled(!requesting && !current.active());
-        boolean controllable = current.state == RecordingService.State.RECORDING || current.state == RecordingService.State.PAUSED;
+        boolean controllable = (current.state == RecordingService.State.RECORDING || current.state == RecordingService.State.PAUSED)
+                && !pendingRestart && !pendingDiscard;
         pause.setEnabled(controllable);
         stop.setEnabled(controllable);
         pause.setText(current.state == RecordingService.State.PAUSED ? "Resume" : "Pause");
@@ -266,6 +292,9 @@ public final class FloatingControlsService extends Service {
         View discard = root.findViewById(R.id.floating_discard);
         discard.setEnabled(controllable);
         discard.setVisibility(current.active() ? View.VISIBLE : View.GONE);
+        View restart = root.findViewById(R.id.floating_restart);
+        restart.setEnabled(controllable);
+        restart.setVisibility(current.active() ? View.VISIBLE : View.GONE);
         panel.setVisibility(expanded ? View.VISIBLE : View.GONE);
         LinearLayout.LayoutParams bubbleLayout = (LinearLayout.LayoutParams) bubble.getLayoutParams();
         bubbleLayout.gravity = rightEdge ? Gravity.END : Gravity.START;

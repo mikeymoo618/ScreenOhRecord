@@ -1,6 +1,8 @@
-# ScreenOhRecord 1.2.3
+# ScreenOhRecord 1.2.4
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming, screen-text analysis or recording uploads. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
+
+**Version 1.2.4 adds Stop and Restart to the floating recording menu. It permanently deletes the current recording and immediately opens fresh Android screen-sharing consent using your current settings. If deletion fails, it reports the error and does not restart.**
 
 **Version 1.2.3 shows floating controls automatically when opening or returning to the main screen, once Android's Display over other apps permission is enabled. Hide lasts until you return to the app. Recording still requires your action and Android capture consent.**
 
@@ -41,6 +43,7 @@ If needed, tap **Show floating controls**, grant **Display over other apps**, an
 
 - **Stop & save** finalizes the current local video and adds it to history.
 - **Stop and Delete** stops and permanently deletes only the current recording, without publishing it to history or moving it to a recycle bin. The floating menu stays open, ready to start another recording. This explicitly named action has no extra confirmation. Previously saved recordings are not affected.
+- **Stop and Restart** is available while recording or paused. It permanently deletes the current recording, then opens Android's screen-sharing confirmation for a fresh recording using your current settings. Cancel leaves recording stopped. Deletion failure keeps the menu open and prevents restart; restore folder access to retry cleanup. Previously saved recordings are unaffected.
 - **Hide bubble** hides controls until you return to the main screen, without stopping an active recording. Use the app or notification to stop it.
 
 Deletion failures are reported; the floating menu remains open. The app retains an unfinished-file marker for cleanup when folder access is restored and the app is reopened. The bubble never automatically records or starts at boot. It can be restored after process death when you open the main screen. Revoking overlay permission closes it. An enabled idle bubble has a visible foreground notification.

@@ -1,3 +1,33 @@
+# ScreenOhRecord 1.2.4 verification
+
+Validated on 2026-10-30 using only the task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified. The emulator was shut down and confirmed absent from adb after the final run.
+
+- Package com.screenohrecord.app; version 1.2.4/build 12; min SDK 29, target 36.
+- Signed APK: artifacts/ScreenOhRecord-1.2.4.apk, 126,848 bytes.
+- SHA-256: b1c73ce9ac0c0370617d51ef7c75a2ecb5cdb6b75a92fbfadec96aa852a09359.
+- Preserved certificate SHA-256: 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8. APK v2 signature verification passed; signed emulator upgrade succeeded.
+- Release build/lint: artifacts/build-1.2.4.log, zero errors and 32 warnings. Final harness build: artifacts/build-test-1.2.4-verified.log.
+- Final full runtime: artifacts/instrumentation-release-1.2.4-clean.log, 27 unique passing groups and no FAIL/crash markers. Bounded runner exit 0 and cleanup: artifacts/bounded-1.2.4-clean.log. Duplicate progress/summary lines are not extra tests.
+- Packaged permissions match 1.2.3 exactly; no runtime dependencies, native libraries, ads or test code were added to the release APK. Identity and full group list: artifacts/verification-1.2.4.json.
+
+## New behavior verified
+
+For both MediaStore and the custom local folder, the floating Stop and Restart action works from PAUSED and RECORDING. The old URI is no longer readable before fresh Android consent appears, discarded output never enters history, and the updater gate remains closed during consent. Accepting creates a different output URI and a playable MP4 using the selected resolution, frame-rate target, codec and microphone option. Saving publishes the fresh output; cancellation deletes the preceding output and leaves recording idle with no retry or leftover output marker.
+
+Revoking the custom-folder grant during recording causes deletion to fail. Restart then reports failure, keeps the menu and recovery marker, and requests no new capture. Restoring the grant via the actual Android picker permits recovery to delete that fixture. Existing revoked-access history retention, floating controls, recording/audio, all low bitrates, AV1, saved-recording thumbnails and missing-file cleanup also passed in the final complete run.
+
+## Diagnostic attempts and limits
+
+All earlier attempt logs remain in artifacts. Test corrections accounted for temporary folder grants outliving a picker return, the existing 50-entry history limit, and rejected accessibility clicks during window relayout. A separate earlier full run hit MediaRecorder.prepare failure at 250 kbps; its cause was not proven, and no encoder settings were changed. The final full run passed all bitrate checks. A one-time emulator app-data reset also demonstrated delayed MediaProvider PACKAGE_DATA_CLEARED cleanup revoking a newly created test URI; the final run began after that cleanup completed and performed no further reset. These attempts are not counted as release passes.
+
+The local bounded runner monitors logs against an 8 MiB threshold, has a 15-minute run limit, bounds diagnostic snapshot subprocesses by size/time and always tears down its emulator. Finite snapshots can finish between monitor checks; the final complete system snapshot is about 9.4 MB, retained in full. Emulator stdout stayed about 12 KB. The local guard now also checks snapshot size after process completion. No logs were truncated or deleted.
+
+Emulator evidence does not establish physical Samsung S22, all hardware encoder/provider conditions, future Android compatibility or Google Play Protect clearance. Restart still requires Android confirmation for the new session; the previous video has already been permanently deleted when that prompt appears.
+
+---
+
+## Historical 1.2.3 verification
+
 # ScreenOhRecord 1.2.3 verification
 
 Validated on 2026-10-27 using only the task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified.

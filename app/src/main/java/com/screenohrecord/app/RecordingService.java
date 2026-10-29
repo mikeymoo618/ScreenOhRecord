@@ -47,8 +47,13 @@ public final class RecordingService extends Service {
         final State state;
         final long duration;
         final String message;
+        final boolean discardSucceeded;
         Status(State state, long duration, String message) {
+            this(state, duration, message, false);
+        }
+        Status(State state, long duration, String message, boolean discardSucceeded) {
             this.state = state; this.duration = duration; this.message = message;
+            this.discardSucceeded = discardSucceeded;
         }
         boolean active() { return state != State.IDLE; }
     }
@@ -251,6 +256,7 @@ public final class RecordingService extends Service {
         long duration = status().duration;
         updateStatus(new Status(State.STOPPING, duration, "Finishing the local file"));
         boolean usable = false;
+        boolean discardSucceeded = false;
         long bytes = 0;
         if (recorder != null) {
             try {
@@ -292,13 +298,14 @@ public final class RecordingService extends Service {
                     message = "Video stopped, but storage needs checking: " + safeMessage(error);
                 }
             } else {
-                if (!store.discard(output.uri))
+                discardSucceeded = store.discard(output.uri);
+                if (!discardSucceeded)
                     message = "Could not delete the recording. Restore folder access and reopen the app to retry cleanup.";
                 if (save && bytes <= 0) message = "No video frames were saved; incomplete file discarded";
             }
             output = null;
         }
-        updateStatus(new Status(State.IDLE, duration, message));
+        updateStatus(new Status(State.IDLE, duration, message, discardSucceeded));
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
