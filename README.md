@@ -1,6 +1,8 @@
-# ScreenOhRecord 1.2.4
+# ScreenOhRecord 1.2.5
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming, screen-text analysis or recording uploads. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
+
+**Version 1.2.5 makes Stop and Restart red, matching the other stop actions.**
 
 **Version 1.2.4 adds Stop and Restart to the floating recording menu. It permanently deletes the current recording and immediately opens fresh Android screen-sharing consent using your current settings. If deletion fails, it reports the error and does not restart.**
 

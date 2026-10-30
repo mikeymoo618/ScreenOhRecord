@@ -1,5 +1,10 @@
 # Updates
 
+## 2026-10-30 — 1.2.5 floating restart color
+
+- Changes Stop and Restart to the same red (RGB 255, 116, 105) as Stop & save and Stop and Delete. Recording and restart behavior are unchanged.
+- Version 1.2.5/build 13. Verification and artifact identity are recorded in TESTING.md and local artifacts.
+
 ## 2026-10-30 — 1.2.4 Stop and Restart
 
 - Adds Stop and Restart to the floating menu during recording or pause. It discards the active output and automatically requests fresh Android capture consent with current recording settings.

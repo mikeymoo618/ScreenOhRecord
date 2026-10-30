@@ -1,3 +1,22 @@
+# ScreenOhRecord 1.2.5 verification
+
+Validated on 2026-10-30 on task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified. The emulator was shut down after testing.
+
+- Package com.screenohrecord.app; version 1.2.5/build 13; min SDK 29, target 36.
+- APK: artifacts/ScreenOhRecord-1.2.5.apk, 126,848 bytes.
+- SHA-256: 30ef2d5a0296639ec4e8fe1f5b3306dcb67cba73bd08bcac618785771bb0dadb.
+- Preserved signer SHA-256: 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8. Signature v2 verification and in-place signed emulator installation passed.
+- Build/lint: artifacts/build-1.2.5.log; zero errors, 32 warnings. Harness: artifacts/build-test-1.2.5.log.
+- Existing focused settingsOnly suite: artifacts/instrumentation-release-1.2.5.log; all 19 unique groups passed, no FAIL/crash markers. Runner exit 0 and cleanup: artifacts/bounded-1.2.5.log. This was not a repeat of the full 27-group suite for 1.2.4.
+- Source inspection confirms Stop & save, Stop and Delete and Stop and Restart all use RGB 255, 116, 105 (#FF7469) through the same button/background constructor. The only recording-code change is that color argument; no new tests were added for the cosmetic change.
+- Packaged permissions and signing identity are unchanged. Verification identity/group list: artifacts/verification-1.2.5.json.
+
+The existing focused suite exercised the visible restart action, restart from paused/recording states, deletion/cancellation, failure/recovery, both storage paths, thumbnails, version footer, low bitrates and AV1. Bounded diagnostic snapshots and all logs were retained; a completed snapshot crossed the monitored 8 MiB threshold between checks and was reported without truncation. Emulator teardown completed. These checks do not establish physical S22 or future-Android compatibility or Play Protect clearance.
+
+---
+
+## Historical 1.2.4 verification
+
 # ScreenOhRecord 1.2.4 verification
 
 Validated on 2026-10-30 using only the task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified. The emulator was shut down and confirmed absent from adb after the final run.

@@ -166,7 +166,7 @@ public final class FloatingControlsService extends Service {
             pendingDiscard = true;
             command(RecordingService.DISCARD);
         });
-        Button restart = control("Stop and Restart", R.id.floating_restart, Color.rgb(199, 223, 218));
+        Button restart = control("Stop and Restart", R.id.floating_restart, Color.rgb(255, 116, 105));
         restart.setOnClickListener(view -> {
             RecordingService.State state = RecordingService.status().state;
             if ((state != RecordingService.State.RECORDING && state != RecordingService.State.PAUSED)
