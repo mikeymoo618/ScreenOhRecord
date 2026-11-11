@@ -7,6 +7,7 @@
     <item name="recording_delete" type="id" />
     <item name="floating_discard" type="id" />
     <item name="floating_restart" type="id" />
+    <item name="floating_open_app" type="id" />
     <item name="open_updates" type="id" />
     <item name="update_status" type="id" />
     <item name="update_details" type="id" />

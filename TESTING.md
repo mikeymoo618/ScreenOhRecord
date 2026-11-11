@@ -1,3 +1,27 @@
+# ScreenOhRecord 1.2.6 verification
+
+Validated on 2026-11-12 on the task-owned ScreenOhRecord16 Android 16/API 36 emulator at port 5564. The bounded runner shut down the emulator after testing.
+
+- Package com.screenohrecord.app, version 1.2.6/build 14, minimum SDK 29 and target SDK 36.
+- Signed APK artifacts/ScreenOhRecord-1.2.6.apk contains 127,680 bytes.
+- SHA-256 98fd419bbd6ee00fccff9bdf90fa74192577c49b65a5d9626b769645413225f9.
+- Signing certificate SHA-256 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8. APK v2 verification and signed emulator upgrade passed.
+- Build and lint passed in artifacts/build-1.2.6.log with zero errors and 31 warnings. Harness build passed in artifacts/build-test-1.2.6.log.
+- All 20 unique groups passed in artifacts/instrumentation-release-1.2.6.log. The focused runner exited 0, with completion and teardown recorded in artifacts/bounded-1.2.6.log. Repeated progress and summary lines are counted once.
+- Permission and packaged-content inspections passed. Artifact identity and the complete group list are recorded in artifacts/verification-1.2.6.json.
+
+## Open app behavior
+
+The test checks the visible idle menu order as Start recording, Open app, Hide bubble. It opens the app from the home screen through the actual overlay button and confirms the existing MainActivity instance regains focus. It then finishes that app task while the overlay service stays active and uses Open app to create a fresh main screen. Repeating the action while that screen is foreground reuses it. Each action collapses the menu and preserves the visible bubble. Recording and capture-request state remain idle throughout these navigation checks.
+
+The existing floating restart tests also check that Open app is hidden during recording and pause for MediaStore and custom-folder sessions. The focused suite exercised capture consent, pause/restart/save/delete, deletion failure and recovery, settings, low bitrates, AV1, version footer, previews and missing-recording cleanup.
+
+Runtime coverage is the Android 16 emulator. The launch-exception fallback was reviewed in source. The diagnostic snapshot size guard stopped capture when its monitored threshold was exceeded, and collected logs were retained. The runner completed emulator teardown.
+
+---
+
+## Historical 1.2.5 verification
+
 # ScreenOhRecord 1.2.5 verification
 
 Validated on 2026-10-30 on task-owned ScreenOhRecord16 Android 16/API 36 emulator, port 5564. No physical phone was modified. The emulator was shut down after testing.

@@ -51,3 +51,7 @@ MainActivity.onResume starts the existing floating-control service when Display 
 ## 1.2.4 Stop and Restart
 
 The floating menu queues a discard only from RECORDING or PAUSED and disables recording actions while it is pending. RecordingService publishes a typed discardSucceeded result after encoder/projection shutdown, output close, deletion and recovery-marker cleanup. Restart consumes that result once; failures keep the menu and cleanup marker without requesting capture. On success, a main-handler task launches the existing CaptureActivity after the old finish callback returns. It checks that the overlay is still available, no other capture/request has started, and permission remains granted. The launch uses current recording options and fresh Android consent rather than reusing a projection token. Hiding/revoking the overlay cancels the deferred request through service teardown/guards. Cancelling fresh consent leaves no new output and no retry loop. Previously saved entries and update network behavior are unchanged.
+
+## 1.2.6 floating Open app
+
+An idle-only Open app control launches MainActivity with NEW_TASK, REORDER_TO_FRONT and SINGLE_TOP. These flags support service-driven navigation and reuse an existing main activity. Successful dispatch collapses the menu, and the visible bubble continues to provide controls. The action checks recording and capture-request state before dispatch. A launch exception is logged and reported while the menu stays expanded.

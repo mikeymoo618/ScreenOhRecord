@@ -1,5 +1,12 @@
 # Updates
 
+## 2026-11-12 — 1.2.6 floating Open app
+
+- Adds Open app between Start recording and Hide bubble in the idle floating menu. It brings MainActivity into view, reuses its existing instance where available and collapses the menu.
+- Shows the action while idle and disables it during capture consent. Launch failures report a message and retain the expanded menu for retry.
+- Adds Android emulator checks for menu order, foregrounding an existing task, opening after task removal, repeated-tap reuse, menu collapse and hiding the action during recording/pause.
+- Version 1.2.6/build 14. Verification and artifact identity are recorded in TESTING.md and local artifacts.
+
 ## 2026-10-30 — 1.2.5 floating restart color
 
 - Changes Stop and Restart to the same red (RGB 255, 116, 105) as Stop & save and Stop and Delete. Recording and restart behavior are unchanged.

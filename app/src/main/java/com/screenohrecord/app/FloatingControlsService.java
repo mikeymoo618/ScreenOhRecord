@@ -155,6 +155,19 @@ public final class FloatingControlsService extends Service {
             CaptureActivity.launch(this, options.getBoolean("microphone", true), options.getInt("quality", 720));
             refresh();
         });
+        Button openApp = control("Open app", R.id.floating_open_app, Color.rgb(199, 223, 218));
+        openApp.setOnClickListener(view -> {
+            if (RecordingService.status().active() || CaptureActivity.isRequestActive()) return;
+            try {
+                startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+                expanded = false;
+                refresh();
+            } catch (RuntimeException error) {
+                android.util.Log.w("ScreenOhRecord", "Could not open app from floating controls", error);
+                Toast.makeText(this, "Could not open ScreenOhRecord. Open it from your launcher.", Toast.LENGTH_LONG).show();
+            }
+        });
         pause = control("Pause", R.id.floating_pause, Color.rgb(199, 223, 218));
         pause.setOnClickListener(view -> command(RecordingService.status().state == RecordingService.State.PAUSED
                 ? RecordingService.RESUME : RecordingService.PAUSE));
@@ -282,6 +295,9 @@ public final class FloatingControlsService extends Service {
                 : "ScreenOhRecord · ready");
         start.setVisibility(current.active() ? View.GONE : View.VISIBLE);
         start.setEnabled(!requesting && !current.active());
+        View openApp = root.findViewById(R.id.floating_open_app);
+        openApp.setVisibility(current.active() ? View.GONE : View.VISIBLE);
+        openApp.setEnabled(!requesting && !current.active());
         boolean controllable = (current.state == RecordingService.State.RECORDING || current.state == RecordingService.State.PAUSED)
                 && !pendingRestart && !pendingDiscard;
         pause.setEnabled(controllable);

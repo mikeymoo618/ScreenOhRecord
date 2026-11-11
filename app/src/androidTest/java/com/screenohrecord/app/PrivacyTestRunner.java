@@ -122,16 +122,18 @@ public final class PrivacyTestRunner extends Instrumentation {
             shell("appops set com.screenohrecord.app SYSTEM_ALERT_WINDOW deny");
             activity = startActivitySync(new Intent(getTargetContext(), MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            Activity launched = activity;
+            Activity initial = activity;
             check(!FloatingControlsService.isVisible(), "Automatic bubble ignored denied overlay permission");
             runOnMainSync(() -> {
-                Switch microphone = launched.findViewById(R.id.microphone);
+                Switch microphone = initial.findViewById(R.id.microphone);
                 check(microphone != null && microphone.isChecked(), "Microphone is not on by default");
-                check(launched.findViewById(R.id.start_recording).isEnabled(), "Start is not available");
-                check(!launched.findViewById(R.id.stop_recording).isEnabled(), "Stop enabled without recording");
+                check(initial.findViewById(R.id.start_recording).isEnabled(), "Start is not available");
+                check(!initial.findViewById(R.id.stop_recording).isEnabled(), "Stop enabled without recording");
                 microphone.setChecked(false);
             });
             append("PASS: approved updater permissions, protected job, private service, backup disabled, recording dimensions, duration and default UI");
+            activity = testFloatingOpenApp(initial);
+            Activity launched = activity;
             if (settingsOnly) {
                 testRecordingSettings(launched);
                 results.putString("stream", output.toString());
@@ -366,6 +368,71 @@ public final class PrivacyTestRunner extends Instrumentation {
         check(!UpdateClient.begin(), "Updater gate opened during restart consent");
     }
 
+    private Activity awaitMainForeground() {
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        Activity[] focused = {null};
+        do {
+            runOnMainSync(() -> {
+                Activity candidate = visibleActivity(null);
+                if (candidate instanceof MainActivity && candidate.hasWindowFocus() && !candidate.isDestroyed()) {
+                    focused[0] = candidate;
+                }
+            });
+            if (focused[0] != null) return focused[0];
+            SystemClock.sleep(100);
+        } while (SystemClock.elapsedRealtime() < deadline);
+        throw new AssertionError("Open app did not bring MainActivity into view");
+    }
+
+    private void assertOverlayControlHidden(String id) {
+        for (AccessibilityWindowInfo window : getUiAutomation().getWindows()) {
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root == null) continue;
+            try {
+                for (AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByViewId("com.screenohrecord.app:id/" + id)) {
+                    check(!node.isVisibleToUser(), "Unexpected visible floating control: " + id);
+                }
+            } finally { root.recycle(); }
+        }
+    }
+
+    private Activity testFloatingOpenApp(Activity initial) throws Exception {
+        shell("appops set com.screenohrecord.app SYSTEM_ALERT_WINDOW allow");
+        shell("input keyevent KEYCODE_HOME");
+        bringMainToFront(initial); awaitBubble(true);
+        shell("input keyevent KEYCODE_HOME");
+        overlayClick("floating_bubble");
+        Rect startBounds = overlayBounds("floating_start");
+        Rect openBounds = overlayBounds("floating_open_app");
+        Rect hideBounds = overlayBounds("floating_hide");
+        check(startBounds.bottom <= openBounds.top && openBounds.bottom <= hideBounds.top,
+                "Idle menu order must be Start recording, Open app, Hide bubble");
+        overlayClick("floating_open_app");
+        Activity opened = awaitMainForeground();
+        check(opened == initial, "Open app duplicated the existing main activity");
+        awaitBubble(true);
+        overlayNode("floating_bubble").recycle();
+        assertOverlayControlHidden("floating_open_app");
+
+        // Keep the overlay service, then exercise opening with no remaining app task.
+        runOnMainSync(opened::finishAndRemoveTask);
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        while (!opened.isDestroyed() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(opened.isDestroyed(), "Existing main task did not finish");
+        shell("input keyevent KEYCODE_HOME");
+        overlayClick("floating_bubble"); overlayClick("floating_open_app");
+        Activity fresh = awaitMainForeground();
+        check(fresh != opened, "Open app did not create a fresh activity after task removal");
+        assertOverlayControlHidden("floating_open_app");
+        overlayClick("floating_bubble"); overlayClick("floating_open_app");
+        check(awaitMainForeground() == fresh, "Open app duplicated an already foreground activity");
+        check(!RecordingService.status().active() && !CaptureActivity.isRequestActive(), "Open app triggered capture");
+        overlayClick("floating_bubble"); overlayClick("floating_hide"); awaitBubble(false);
+        shell("appops set com.screenohrecord.app SYSTEM_ALERT_WINDOW deny");
+        append("PASS: idle Open app order, existing-task foregrounding, fresh launch, repeated tap reuse and collapsed menu");
+        return fresh;
+    }
+
     private String activeOutputUri() {
         String uri = getTargetContext().getSharedPreferences("local_recordings", 0).getString("unfinished", null);
         check(uri != null, "Recording has no owned output");
@@ -391,7 +458,10 @@ public final class PrivacyTestRunner extends Instrumentation {
         overlayClick("floating_bubble"); overlayClick("floating_start"); consent(true);
         awaitState(RecordingService.State.RECORDING); awaitRequestFinished(); SystemClock.sleep(1600);
         String oldUri = activeOutputUri();
-        overlayClick("floating_bubble"); overlayClick("floating_pause"); awaitState(RecordingService.State.PAUSED);
+        overlayClick("floating_bubble");
+        assertOverlayControlHidden("floating_open_app");
+        overlayClick("floating_pause"); awaitState(RecordingService.State.PAUSED);
+        assertOverlayControlHidden("floating_open_app");
         check("Stop and Restart".contentEquals(overlayNode("floating_restart").getText()), "Restart action label missing");
         overlayClick("floating_restart"); awaitRestartConsent();
         check(RecordingService.status().discardSucceeded, "Restart did not confirm deletion");
