@@ -82,7 +82,13 @@ public final class PrivacyTestRunner extends Instrumentation {
             check(permissions.contains(Manifest.permission.REQUEST_INSTALL_PACKAGES), "Update install permission missing");
             check(!permissions.contains(Manifest.permission.CAMERA), "Camera permission present");
             check(!permissions.contains("android.permission.READ_MEDIA_VIDEO"), "Broad media-read permission present");
-            check(!permissions.contains(Manifest.permission.WRITE_EXTERNAL_STORAGE), "Legacy storage permission present");
+            if (android.os.Build.VERSION.SDK_INT < 29) {
+                check(permissions.contains(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        && permissions.contains(Manifest.permission.WRITE_EXTERNAL_STORAGE), "Android 9 storage permissions missing");
+            } else {
+                check(!permissions.contains(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        && !permissions.contains(Manifest.permission.READ_EXTERNAL_STORAGE), "Legacy storage permission applies on modern Android");
+            }
             check(info.applicationInfo.targetSdkVersion == 36, "Build does not target Android 16");
             check(BuildConfig.VERSION_NAME.equals(info.versionName), "Wrong installed app version: " + info.versionName);
             check((info.applicationInfo.flags & ApplicationInfo.FLAG_ALLOW_BACKUP) == 0, "Backup allowed");
@@ -132,6 +138,12 @@ public final class PrivacyTestRunner extends Instrumentation {
                 microphone.setChecked(false);
             });
             append("PASS: approved updater permissions, protected job, private service, backup disabled, recording dimensions, duration and default UI");
+            if (android.os.Build.VERSION.SDK_INT == 28) {
+                testAndroid9(initial);
+                results.putString("stream", output.toString());
+                finish(Activity.RESULT_OK, results);
+                return;
+            }
             activity = testFloatingOpenApp(initial);
             Activity launched = activity;
             if (settingsOnly) {
@@ -309,8 +321,9 @@ public final class PrivacyTestRunner extends Instrumentation {
         try { UpdateClient.verify(getTargetContext(), own, release, true); } catch (IOException expected) { rejected = true; }
         check(rejected, "Updater accepted same-version APK as an upgrade");
         rejected = false;
+        String zeroHash = "0000000000000000000000000000000000000000000000000000000000000000";
         try { UpdateClient.verify(getTargetContext(), own, new UpdateClient.Release(release.versionCode, release.versionName,
-                release.apkUrl, "0".repeat(64), release.size, ""), false); } catch (IOException expected) { rejected = true; }
+                release.apkUrl, zeroHash, release.size, ""), false); } catch (IOException expected) { rejected = true; }
         check(rejected, "Updater accepted corrupt checksum");
         java.io.File wrongSigner = new java.io.File(getTargetContext().getExternalFilesDir(null), "update-wrong-signer.apk");
         check(wrongSigner.isFile(), "Host did not provide alternate-signer APK fixture");
@@ -559,6 +572,128 @@ public final class PrivacyTestRunner extends Instrumentation {
         RecordingOptions.get(getTargetContext()).edit().putString("codec", "h264").putBoolean("hevc", false).commit();
     }
 
+    private void testAndroid9(Activity main) throws Exception {
+        for (android.media.MediaCodecInfo codecInfo : new android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS).getCodecInfos()) {
+            if (!codecInfo.isEncoder() || !Arrays.asList(codecInfo.getSupportedTypes()).contains("video/avc")) continue;
+            android.media.MediaCodecInfo.CodecCapabilities capabilities = codecInfo.getCapabilitiesForType("video/avc");
+            android.media.MediaFormat requested = android.media.MediaFormat.createVideoFormat("video/avc", 720, 1280);
+            requested.setInteger(android.media.MediaFormat.KEY_FRAME_RATE, 15);
+            requested.setInteger(android.media.MediaFormat.KEY_BIT_RATE, 1_000_000);
+            requested.setInteger(android.media.MediaFormat.KEY_COLOR_FORMAT, android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+            append("INFO: Android 9 AVC encoder " + codecInfo.getName() + " colors=" + Arrays.toString(capabilities.colorFormats)
+                    + " widths=" + capabilities.getVideoCapabilities().getSupportedWidths()
+                    + " heights=" + capabilities.getVideoCapabilities().getSupportedHeights()
+                    + " rates=" + capabilities.getVideoCapabilities().getSupportedFrameRates()
+                    + " bitrates=" + capabilities.getVideoCapabilities().getBitrateRange()
+                    + " requested=" + capabilities.isFormatSupported(requested));
+        }
+        RecordingStore store = new RecordingStore(getTargetContext());
+        android.content.SharedPreferences options = RecordingOptions.get(getTargetContext());
+        check(RecordingStore.needsLegacyStoragePermission(getTargetContext()), "Android 9 default storage permission was not required");
+        awaitStart(main); tap(main, R.id.start_recording); clickSystemText("Deny");
+        awaitRequestFinished();
+        check(!RecordingService.status().active() && !getTargetContext().getSharedPreferences("local_recordings", 0).contains("unfinished"),
+                "Denied storage permission created an output or recording");
+        awaitStart(main); tap(main, R.id.start_recording); clickSystemText("Allow"); consent(true);
+        awaitState(RecordingService.State.RECORDING); awaitRequestFinished();
+        check(!RecordingStore.needsLegacyStoragePermission(getTargetContext()), "Storage permission was not granted");
+        SystemClock.sleep(2500); notificationAction("Pause"); awaitState(RecordingService.State.PAUSED);
+        notificationAction("Resume"); awaitState(RecordingService.State.RECORDING);
+        SystemClock.sleep(1600); notificationAction("Stop"); awaitState(RecordingService.State.IDLE);
+        verifyLatestVideo(false);
+        RecordingStore.Entry silent = store.entries().get(0);
+        try (android.database.Cursor cursor = getTargetContext().getContentResolver().query(silent.uri,
+                new String[]{android.provider.MediaStore.Video.Media.DATA}, null, null, null)) {
+            check(cursor != null && cursor.moveToFirst(), "Legacy video has no MediaStore row");
+            check(cursor.getString(0).contains("/Movies/ScreenOhRecord/") && new java.io.File(cursor.getString(0)).isFile(),
+                    "Legacy recording is not stored in Movies/ScreenOhRecord");
+        }
+        append("PASS: Android 9 storage denial/grant, public Movies MP4, notification pause/resume/stop and silent playback");
+        testHistoryPreviews(main, silent);
+
+        final Activity visible = bringMainToFront(main);
+        runOnMainSync(() -> ((Switch) visible.findViewById(R.id.microphone)).setChecked(true));
+        awaitStart(visible); tap(visible, R.id.start_recording); consent(true);
+        awaitState(RecordingService.State.RECORDING); awaitRequestFinished(); SystemClock.sleep(3000);
+        notificationAction("Stop"); awaitState(RecordingService.State.IDLE); verifyLatestVideo(true);
+        RecordingStore.Entry microphoneVideo = store.entries().get(0);
+        android.content.SharedPreferences history = getTargetContext().getSharedPreferences("local_recordings", 0);
+        history.edit().putString("unfinished", microphoneVideo.uri.toString())
+                .putString("finalized_document", microphoneVideo.uri.toString()).commit();
+        store.recoverInterrupted();
+        check(!history.contains("unfinished") && store.availability(microphoneVideo) == RecordingStore.Availability.PRESENT,
+                "Recovery removed a finalized Android 9 recording");
+        RecordingStore.Output interrupted = store.create(); interrupted.descriptor.close();
+        store.recoverInterrupted(); assertRecordingGone(interrupted.uri.toString());
+        check(!history.contains("unfinished"), "Android 9 unfinished cleanup marker retained");
+        verifyLatestVideo(true);
+        append("PASS: Android 9 AAC microphone, finalized-file preservation and interrupted legacy-output cleanup");
+
+        try (android.database.Cursor cursor = getTargetContext().getContentResolver().query(microphoneVideo.uri,
+                new String[]{android.provider.MediaStore.Video.Media.DATA}, null, null, null)) {
+            check(cursor != null && cursor.moveToFirst(), "Missing legacy file path");
+            check(new java.io.File(cursor.getString(0)).delete(), "Could not remove own legacy test file outside MediaStore");
+        }
+        check(store.availability(microphoneVideo) == RecordingStore.Availability.MISSING,
+                "Stale Android 9 MediaStore row hid a missing physical file");
+        check(store.pruneMissing().contains(microphoneVideo.uri), "Missing legacy file retained in history");
+        getTargetContext().getContentResolver().delete(microphoneVideo.uri, null, null);
+        testExternalDeletion(main);
+        append("PASS: Android 9 missing physical-file detection and stale MediaStore history cleanup");
+        deleteWithFloatingControls(main);
+
+        options.edit().putString("codec", "av1").commit();
+        check(!RecordingOptions.supportsCodec(getTargetContext(), "av1"), "AV1 incorrectly supported on Android 9");
+        main = bringMainToFront(main); awaitStart(main); tap(main, R.id.start_recording); consent(true);
+        awaitRequestFinished(); awaitState(RecordingService.State.IDLE);
+        check(RecordingService.status().message.contains("AV1 recording requires Android 13") && !history.contains("unfinished"),
+                "Unavailable Android 9 codec did not fail cleanly");
+        options.edit().putString("codec", "h264").commit();
+        append("PASS: Android 9 unsupported AV1 fails before creating a recording");
+
+        RecordingStore.Entry retained = historyFixture(store);
+        shell("mkdir -p /sdcard/Movies/SR9");
+        main = bringMainToFront(main); awaitStart(main); tap(main, R.id.recording_settings);
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        while ((settingsActivity == null || !settingsActivity.hasWindowFocus()) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(settingsActivity != null && settingsActivity.hasWindowFocus(), "Android 9 settings unavailable");
+        runOnMainSync(() -> settingsActivity.findViewById(R.id.settings_folder).performClick());
+        clickSystemText("SR9"); clickSystemText("Select");
+        deadline = SystemClock.elapsedRealtime() + 8000;
+        while (!options.contains("folder_uri") && SystemClock.elapsedRealtime() < deadline) {
+            AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
+            if (root != null) try {
+                boolean allow = root.findAccessibilityNodeInfosByText("Allow").stream()
+                        .anyMatch(node -> "Allow".equalsIgnoreCase(String.valueOf(node.getText())));
+                if (allow) clickSystemText("Allow");
+            } finally { root.recycle(); }
+            SystemClock.sleep(100);
+        }
+        check(options.contains("folder_uri"), "Android 9 folder grant not retained");
+        runOnMainSync(() -> settingsActivity.finish());
+        main = bringMainToFront(main);
+        shell("appops set com.screenohrecord.app READ_EXTERNAL_STORAGE ignore");
+        shell("appops set com.screenohrecord.app WRITE_EXTERNAL_STORAGE ignore");
+        try {
+            check(!RecordingStore.needsLegacyStoragePermission(getTargetContext()), "Chosen local folder requested global storage access");
+            check(store.availability(retained) == RecordingStore.Availability.UNAVAILABLE && !store.pruneMissing().contains(retained.uri),
+                    "Blocked global storage access removed a saved history entry");
+            awaitStart(main); tap(main, R.id.start_recording); consent(true);
+            awaitState(RecordingService.State.RECORDING); awaitRequestFinished(); SystemClock.sleep(3000);
+            notificationAction("Stop"); awaitState(RecordingService.State.IDLE); verifyLatestVideo(true);
+            RecordingStore.Entry document = store.entries().get(0);
+            check(SettingsActivity.LOCAL_AUTHORITY.equals(document.uri.getAuthority()), "Android 9 ignored chosen folder");
+            testHistoryPreviews(main, document);
+        } finally {
+            shell("appops set com.screenohrecord.app READ_EXTERNAL_STORAGE allow");
+            shell("appops set com.screenohrecord.app WRITE_EXTERNAL_STORAGE allow");
+        }
+        store.delete(retained);
+        options.edit().remove("folder_uri").remove("folder_label").commit();
+        append("PASS: Android 9 selected-folder recording and previews with global storage access blocked, retained inaccessible history");
+        append("PASS: Android 9 compatibility complete");
+    }
+
     private void testRecordingSettings(Activity main) throws Exception {
         main = bringMainToFront(main);
         tap(main, R.id.recording_settings);
@@ -598,6 +733,7 @@ public final class PrivacyTestRunner extends Instrumentation {
             check(((android.widget.Spinner) visible.findViewById(R.id.recording_quality)).getSelectedItemPosition() == 1,
                     "Main resolution did not refresh from Settings");
         });
+        java.util.Map<String, ?> selectedPreferences = new java.util.HashMap<>(preferences.getAll());
         awaitStart(main);
         tap(main, R.id.start_recording);
         consent(true);
@@ -610,6 +746,7 @@ public final class PrivacyTestRunner extends Instrumentation {
         RecordingStore.Entry video = store.entries().get(0);
         check(SettingsActivity.LOCAL_AUTHORITY.equals(video.uri.getAuthority()), "Recording ignored selected local folder");
         verifyEncoding(video, hevc ? "video/hevc" : "video/avc", 1080, 30);
+        check(preferences.getAll().equals(selectedPreferences), "Recording changed the selected Android 16 settings");
         deleteWithFloatingControls(main);
         append("PASS: settings UI persists 1080p/30fps/2Mbps/" + (hevc ? "HEVC" : "H.264")
                 + ", system folder picker, microphone, local-folder MP4 and decoding");
@@ -849,12 +986,23 @@ public final class PrivacyTestRunner extends Instrumentation {
             for (int i = 0; i < extractor.getTrackCount(); i++) {
                 android.media.MediaFormat format = extractor.getTrackFormat(i);
                 if (mime.equals(format.getString(android.media.MediaFormat.KEY_MIME))) {
-                    check(Math.min(format.getInteger(android.media.MediaFormat.KEY_WIDTH),
-                            format.getInteger(android.media.MediaFormat.KEY_HEIGHT)) == shortEdge, "Wrong output resolution: " + format);
+                    int width = format.getInteger(android.media.MediaFormat.KEY_WIDTH);
+                    int height = format.getInteger(android.media.MediaFormat.KEY_HEIGHT);
+                    if (android.os.Build.VERSION.SDK_INT == 28) {
+                        check(Math.min(width, height) > 0 && Math.min(width, height) <= shortEdge, "Legacy encoder exceeded the selected resolution cap");
+                        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+                        getTargetContext().getSystemService(android.view.WindowManager.class).getDefaultDisplay().getRealMetrics(metrics);
+                        check(Math.abs((double) width / height - (double) metrics.widthPixels / metrics.heightPixels) < 0.02,
+                                "Legacy encoder changed the screen aspect ratio");
+                    } else {
+                        check(Math.min(width, height) == shortEdge, "Wrong output resolution: " + format);
+                    }
                     // Surface capture can emit fewer frames on a static screen or a slow emulator.
                     // The setting requests a target rate; the MP4 reports the achieved average.
                     if (format.containsKey(android.media.MediaFormat.KEY_FRAME_RATE)) {
-                        float actual = format.getNumber(android.media.MediaFormat.KEY_FRAME_RATE).floatValue();
+                    float actual = android.os.Build.VERSION.SDK_INT >= 29
+                            ? format.getNumber(android.media.MediaFormat.KEY_FRAME_RATE).floatValue()
+                            : format.getInteger(android.media.MediaFormat.KEY_FRAME_RATE);
                         check(actual > 0 && actual <= fps + 2, "Output exceeded requested frame rate: " + format);
                     }
                     append("ENCODED: " + format);
@@ -865,28 +1013,69 @@ public final class PrivacyTestRunner extends Instrumentation {
         } finally { extractor.release(); }
     }
 
+    private void saveAndroid9Screenshot(String name) {
+        if (android.os.Build.VERSION.SDK_INT != 28) return;
+        Bitmap preview = getUiAutomation().takeScreenshot();
+        if (preview == null) return;
+        try (java.io.FileOutputStream file = new java.io.FileOutputStream(new java.io.File(getTargetContext().getExternalFilesDir(null), name))) {
+            preview.compress(Bitmap.CompressFormat.PNG, 100, file);
+        } catch (IOException error) { android.util.Log.w("ScreenOhRecord", "Could not save test screenshot", error); }
+        finally { preview.recycle(); }
+    }
+
     private void clickSystemText(String wanted) {
+        enableInteractiveWindows();
         long deadline = SystemClock.elapsedRealtime() + 10_000;
         while (SystemClock.elapsedRealtime() < deadline) {
             AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
             if (root != null) {
                 try {
-                    for (AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText(wanted)) {
-                        if (node.getText() != null && wanted.equalsIgnoreCase(node.getText().toString())) {
-                            AccessibilityNodeInfo target = node;
-                            for (int i = 0; i < 5 && target != null; i++, target = target.getParent())
-                                if (target.isClickable() && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                                    SystemClock.sleep(500); return;
-                                }
-                        }
-                    }
+                    if (clickSystemTextInRoot(root, wanted)) { SystemClock.sleep(500); return; }
+                } finally { root.recycle(); }
+            }
+            for (AccessibilityWindowInfo window : getUiAutomation().getWindows()) {
+                root = window.getRoot();
+                if (root == null) continue;
+                try {
+                    if (clickSystemTextInRoot(root, wanted)) { SystemClock.sleep(500); return; }
                 } finally { root.recycle(); }
             }
             SystemClock.sleep(200);
         }
+        saveAndroid9Screenshot("android9-failure.png");
         throw new AssertionError("System folder-picker action missing: " + wanted);
     }
 
+
+    private boolean clickSystemTextInRoot(AccessibilityNodeInfo root, String wanted) {
+        for (AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText(wanted)) {
+            if (android.os.Build.VERSION.SDK_INT == 28 && "SR9".equals(wanted))
+                append("INFO: Android 9 folder candidate text=" + node.getText() + ", description=" + node.getContentDescription());
+            boolean matches = wanted.equalsIgnoreCase(String.valueOf(node.getText()))
+                    || wanted.equalsIgnoreCase(String.valueOf(node.getContentDescription()));
+            if (!node.isVisibleToUser() || !matches) continue;
+            AccessibilityNodeInfo target = node;
+            for (int level = 0; level < 5 && target != null; level++, target = target.getParent()) {
+                if (target.isClickable() && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+            }
+            if (android.os.Build.VERSION.SDK_INT == 28) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                if (bounds.isEmpty()) continue;
+                long now = SystemClock.uptimeMillis();
+                MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY(), 0);
+                MotionEvent up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY(), 0);
+                down.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+                up.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);
+                try {
+                    boolean pressed = getUiAutomation().injectInputEvent(down, true);
+                    boolean released = getUiAutomation().injectInputEvent(up, true);
+                    if (pressed && released) return true;
+                } finally { down.recycle(); up.recycle(); }
+            }
+        }
+        return false;
+    }
 
     private void append(String value) {
         output.append(value).append('\n');
@@ -1001,6 +1190,7 @@ public final class PrivacyTestRunner extends Instrumentation {
     }
 
     private void selectTestAppIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT < 34) return;
         // Android 16 defaults to single-app sharing, followed by a system app selector.
         // Select only this synthetic test app; never another installed app's contents.
         long deadline = SystemClock.elapsedRealtime() + 15_000;
@@ -1069,10 +1259,18 @@ public final class PrivacyTestRunner extends Instrumentation {
         throw new AssertionError("Capture-consent host did not finish");
     }
 
-    private AccessibilityNodeInfo overlayNode(String id) {
+    private void enableInteractiveWindows() {
         AccessibilityServiceInfo serviceInfo = getUiAutomation().getServiceInfo();
-        serviceInfo.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
-        getUiAutomation().setServiceInfo(serviceInfo);
+        int requiredFlags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
+        if ((serviceInfo.flags & requiredFlags) != requiredFlags) {
+            serviceInfo.flags |= requiredFlags;
+            getUiAutomation().setServiceInfo(serviceInfo);
+        }
+    }
+
+    private AccessibilityNodeInfo overlayNode(String id) {
+        enableInteractiveWindows();
         long deadline = SystemClock.elapsedRealtime() + 8000;
         while (SystemClock.elapsedRealtime() < deadline) {
             for (AccessibilityWindowInfo window : getUiAutomation().getWindows()) {
@@ -1129,7 +1327,16 @@ public final class PrivacyTestRunner extends Instrumentation {
     }
 
     private void shell(String command) {
-        try (ParcelFileDescriptor ignored = getUiAutomation().executeShellCommand(command)) {
+        if ("input keyevent KEYCODE_HOME".equals(command)) {
+            command = "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME";
+        }
+        try (ParcelFileDescriptor.AutoCloseInputStream input = new ParcelFileDescriptor.AutoCloseInputStream(
+                getUiAutomation().executeShellCommand(command))) {
+            byte[] buffer = new byte[1024];
+            int count;
+            java.io.ByteArrayOutputStream response = new java.io.ByteArrayOutputStream();
+            while ((count = input.read(buffer)) != -1) response.write(buffer, 0, count);
+            if (response.size() > 0) lifecycleTrace.append(command).append('\n').append(response.toString("UTF-8"));
             SystemClock.sleep(300);
         } catch (IOException error) { throw new AssertionError(error); }
     }

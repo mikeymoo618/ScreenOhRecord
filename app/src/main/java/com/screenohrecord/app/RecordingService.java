@@ -16,9 +16,6 @@ import android.content.pm.ServiceInfo;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.MediaRecorder;
-import android.media.MediaCodecList;
-import android.media.MediaCodecInfo;
-import android.media.MediaFormat;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
@@ -163,17 +160,14 @@ public final class RecordingService extends Service {
             DisplayMetrics metrics = new DisplayMetrics();
             ((WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(metrics);
             int quality = intent.getIntExtra("quality", 720) >= 1080 ? 1080 : 720;
-            int[] size = RecordingConfig.chooseSize(metrics.widthPixels, metrics.heightPixels, quality);
+            int[] requestedSize = RecordingConfig.chooseSize(metrics.widthPixels, metrics.heightPixels, quality);
             int fps = RecordingOptions.fps(intent.getIntExtra("fps", 15));
             int bitrate = RecordingOptions.bitrate(intent.getIntExtra("bitrate", 1_000_000));
             String codec = RecordingOptions.validCodec(intent.getStringExtra("codec"));
             if ("av1".equals(codec) && Build.VERSION.SDK_INT < 33)
                 throw new IOException("AV1 recording requires Android 13 or newer. Choose H.264 or HEVC.");
-            MediaFormat format = MediaFormat.createVideoFormat(RecordingOptions.mime(codec), size[0], size[1]);
-            format.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
-            format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
-            format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-            if (new MediaCodecList(MediaCodecList.REGULAR_CODECS).findEncoderForFormat(format) == null)
+            int[] size = RecordingConfig.encoderSize(codec, requestedSize, fps, bitrate);
+            if (size == null)
                 throw new IOException("Unsupported recording settings. Try H.264, 720p and 15 fps in Settings");
             output = store.create();
             recorder = Build.VERSION.SDK_INT >= 31 ? new MediaRecorder(this) : new MediaRecorder();

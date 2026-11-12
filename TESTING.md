@@ -1,3 +1,26 @@
+# ScreenOhRecord 1.2.7 verification
+
+Validated on 2026-11-12 using task-owned Android 9/API 28 and Android 16/API 36 emulators. Both task emulators stopped after testing.
+
+- Package `com.screenohrecord.app`, version 1.2.7/build 15, minimum SDK 28, target SDK 36.
+- Tested APK `artifacts/ScreenOhRecord-1.2.7.apk` contains 131,736 bytes.
+- SHA-256 `552358b704210fb59004308032457db5c87c3fc0a57593d0f9634cdfe05d82a8`.
+- Original signing certificate SHA-256 `7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8`. APK v2 verification passed.
+- Build and lint passed with zero errors and 30 warnings. Exact APK build log is `artifacts/build-1.2.7-encoder.log`.
+- Android 9 passed 13 unique groups in `artifacts/instrumentation-release-1.2.7-android9-picker-verified.log`, including the completion marker. Coverage includes install, storage denial/grant, playback, microphone AAC, pause/resume, cleanup/recovery, floating Stop/Delete/Restart, thumbnails, selected-folder recording with global storage access blocked, and updater validation.
+- Android 16 passed 20 unique groups in `artifacts/instrumentation-release-1.2.7-android16-final.log`. Coverage includes Open app navigation, floating controls, deletion/recovery, thumbnails, 720p, 1080p/30fps/2Mbps, low bitrates and AV1. Recording was checked against a saved copy of all selected recording preferences, including the destination and microphone setting.
+- Both complete instrumentation logs contain zero failure/crash markers. Combined release evidence is `artifacts/instrumentation-release-1.2.7-combined.log` and `artifacts/verification-1.2.7.json`.
+
+## Android 9 compatibility and settings preservation
+
+Legacy storage permissions are capped at API 28. Android 9 requests access for the default Movies destination. Selected local folders use their existing URI grants. Encoder fitting is restricted to API 28 and leaves stored recording preferences intact. The Android 9 emulator required 612 by 1088 output within the selected 720p cap. Android 16 retains exact selected dimensions and passed preference-preservation assertions.
+
+## Validation limits
+
+Physical Galaxy S8 and Galaxy S22 testing remains pending. Android 9's final suite focuses on storage and recording after an earlier cold-task Open app automation failure. Android 16 covers that navigation case. The Android 16 post-test diagnostic snapshot reached its monitored size threshold after the tests passed. The runner stopped capture, retained diagnostic logs and shut down the emulator. These checks establish emulator coverage and do not establish physical-device or future-Android compatibility or Play Protect clearance.
+
+---
+
 # ScreenOhRecord 1.2.6 verification
 
 Validated on 2026-11-12 on the task-owned ScreenOhRecord16 Android 16/API 36 emulator at port 5564. The bounded runner shut down the emulator after testing.

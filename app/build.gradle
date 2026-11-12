@@ -13,10 +13,10 @@ android {
 
     defaultConfig {
         applicationId 'com.screenohrecord.app'
-        minSdk 29
+        minSdk 28
         targetSdk 36
-versionCode 14
-versionName '1.2.6'
+versionCode 15
+versionName '1.2.7'
         if (project.hasProperty('appVersionCode')) versionCode project.property('appVersionCode').toInteger()
         if (project.hasProperty('appVersionName')) versionName project.property('appVersionName')
         testInstrumentationRunner 'com.screenohrecord.app.PrivacyTestRunner'

@@ -87,6 +87,10 @@ public final class CaptureActivity extends Activity {
         quality = getIntent().getIntExtra("quality", 720);
         if (RecordingService.status().active()) { finish(); return; }
         List<String> permissions = new ArrayList<>();
+        if (RecordingStore.needsLegacyStoragePermission(this)) {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        }
         if (microphone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.RECORD_AUDIO);
         }
@@ -100,6 +104,11 @@ public final class CaptureActivity extends Activity {
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
         if (code != PERMISSIONS) return;
+        if (RecordingStore.needsLegacyStoragePermission(this)) {
+            toast("Allow storage access to save in Movies, or choose a local folder in Settings.");
+            finish();
+            return;
+        }
         if (microphone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             toast("Microphone permission denied. Turn microphone audio off to record silently.");
             finish();

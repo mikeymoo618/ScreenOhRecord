@@ -1,5 +1,16 @@
 # Updates
 
+## 2026-11-12 — 1.2.7 Android 9 compatibility
+
+- Lowers the minimum Android version to API 28 and keeps compile/target API 36.
+- Adds Android 9 public Movies storage through legacy MediaStore. Read/write storage permissions are capped at API 28 and requested before capture for the default location.
+- Finalizes Android 9 video metadata and retains a finalized-output recovery marker. Legacy recovery and missing-file detection handle Android 9 storage and permission states.
+- Confirms deletion or file absence before clearing a pending media-output marker.
+- Uses Android 9-compatible archive certificate collection for updater verification, while retaining certificate matching.
+- Limits encoder-dimension fitting to Android 9. Android 16 regression checks validate selected 720p/1080p output and recording preferences.
+- Adds Android 9 installation, permission, recording/audio, floating controls, recovery, file deletion, codec availability and selected-folder checks alongside Android 16 regression validation.
+- Version 1.2.7/build 15. Exact validation and artifact identity are recorded in TESTING.md and local artifacts.
+
 ## 2026-11-12 — 1.2.6 floating Open app
 
 - Adds Open app between Start recording and Hide bubble in the idle floating menu. It brings MainActivity into view, reuses its existing instance where available and collapses the menu.

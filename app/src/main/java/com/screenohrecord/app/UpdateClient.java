@@ -208,12 +208,16 @@ final class UpdateClient {
         if (result.isEmpty()) throw new IOException("APK has no signing certificates");
         return result;
     }
+    @SuppressWarnings("deprecation")
     static void verify(Context context, File file, Release release, boolean requireNewer) throws IOException {
         if (file.length() != release.size || !hash(file).equals(release.sha256)) throw new IOException("APK size or SHA-256 verification failed");
         PackageManager manager = context.getPackageManager();
-        PackageInfo archive = manager.getPackageArchiveInfo(file.getAbsolutePath(), PackageManager.GET_SIGNING_CERTIFICATES);
+        int signingFlags = PackageManager.GET_SIGNING_CERTIFICATES;
+        // Android 9's archive parser collects certificates when this legacy flag is present.
+        if (android.os.Build.VERSION.SDK_INT == 28) signingFlags |= PackageManager.GET_SIGNATURES;
+        PackageInfo archive = manager.getPackageArchiveInfo(file.getAbsolutePath(), signingFlags);
         try {
-            PackageInfo installed = manager.getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+            PackageInfo installed = manager.getPackageInfo(context.getPackageName(), signingFlags);
             if (archive == null || !context.getPackageName().equals(archive.packageName)
                     || archive.getLongVersionCode() != release.versionCode || !release.versionName.equals(archive.versionName)
                     || archive.applicationInfo == null || archive.applicationInfo.minSdkVersion > android.os.Build.VERSION.SDK_INT

@@ -1,6 +1,8 @@
-# ScreenOhRecord 1.2.6
+# ScreenOhRecord 1.2.7
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming, screen-text analysis or recording uploads. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
+
+**Version 1.2.7 adds Android 9 support. Saving in Movies on Android 9 requests storage access. Android 9 can fit video dimensions to its encoder limits within the selected resolution cap.**
 
 **Version 1.2.6 adds Open app to the idle floating menu. Tap it to bring the main screen into view and collapse the menu.**
 
@@ -16,7 +18,7 @@ An independent Android screen recorder: local MP4 files, no ads, analytics, live
 
 Install the signed APK from [GitHub Releases](https://github.com/mikeymoo618/ScreenOhRecord/releases/latest). Install it over the existing ScreenOhRecord without uninstalling; the original signing identity is retained. Versions before 1.2.0 require a manual APK installation; versions with App updates can use that screen for subsequent releases. AZ Recorder may remain installed as a separate app.
 
-Minimum Android 10/API 29; compile/target Android 16/API 36. Android 16 emulator tests do not establish behavior on every phone or future Android release. Do not install the separately generated instrumentation APK or local update-testbase fixture.
+Minimum Android 9/API 28, with compile/target Android 16/API 36. Validation coverage is recorded in TESTING.md. Install the signed release APK linked above.
 
 Open **App updates** from the main screen or Settings. **Check for updates** fetches small public GitHub release information and shows installed/latest versions, download size and release notes. After you approve a download, the app checks its size, SHA-256, package, version and installed signing identity, then requests Android's installation confirmation. Android validates the APK signature during installation. You may need to enable Android's **Allow from this source** setting for ScreenOhRecord, then return to the app. Installations are not silent; recordings/settings are retained on an ordinary signed upgrade.
 
@@ -59,13 +61,13 @@ Pause/resume/stop also work through the main app and recording notification. If 
 
 Saved recordings show a small local thumbnail beside their name, duration and size. Frames are decoded in the background with a bounded memory-only cache; no preview image files are saved. Deleting a recording removes its row and thumbnail immediately and cancels pending preview work. Missing/unreadable videos use a placeholder. Existing Play/Delete controls remain.
 
-The last line of the page shows the installed package version and build number (for this release: ScreenOhRecord 1.2.1, build 9). It is refreshed from Android package information, rather than a manually maintained label.
+The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.2.7, build 15. It is refreshed from Android package information.
 
 ## Local folders and privacy
 
 Only Android's external-storage document provider is accepted by the folder picker; cloud providers cannot become recording destinations. Android restricts certain roots/app-data directories, so choose a permitted subfolder. Removing storage/revoking access reports failure rather than silently changing destination. **Use Movies / ScreenOhRecord** restores the default. Existing recordings stay in place; old folder grants are retained for their playback/deletion. Play launches a selected player with a URI read grant; Delete for saved files requires confirmation.
 
-No camera, advertising identifier, accessibility-service or broad storage/media-reading permission. The updater adds INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES and RECEIVE_BOOT_COMPLETED (for the optional persisted job). The system-only job service requires BIND_JOB_SERVICE; it does not start recording at boot. App-data backup/device transfer is disabled. Other gallery, player or backup apps have their own permissions and may sync shared videos if you configure them to do so.
+Android 9 uses READ_EXTERNAL_STORAGE and WRITE_EXTERNAL_STORAGE for the default Movies folder. Both declarations have maxSdkVersion 28. Android 10 and newer use scoped MediaStore access. The updater adds INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES and RECEIVE_BOOT_COMPLETED (for the optional persisted job). The system-only job service requires BIND_JOB_SERVICE; it does not start recording at boot. App-data backup/device transfer is disabled. Other gallery, player or backup apps have their own permissions and may sync shared videos if you configure them to do so.
 
 Whole-screen video can contain private messages, notifications and sensitive data displayed during recording. Hide private notifications and avoid exposing sensitive content. The app does not send recordings, frames or screen text to GitHub or elsewhere.
 

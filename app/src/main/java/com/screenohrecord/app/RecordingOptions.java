@@ -2,9 +2,6 @@ package com.screenohrecord.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
-import android.media.MediaFormat;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
 import java.util.Locale;
@@ -50,11 +47,8 @@ final class RecordingOptions {
         context.getSystemService(WindowManager.class).getDefaultDisplay().getRealMetrics(metrics);
         int[] size = RecordingConfig.chooseSize(metrics.widthPixels, metrics.heightPixels,
                 preferences.getInt("quality", 720) >= 1080 ? 1080 : 720);
-        MediaFormat format = MediaFormat.createVideoFormat(mime(codec), size[0], size[1]);
-        format.setInteger(MediaFormat.KEY_FRAME_RATE, fps(preferences.getInt("fps", 15)));
-        format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate(preferences.getInt("bitrate", 1_000_000)));
-        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        return new MediaCodecList(MediaCodecList.REGULAR_CODECS).findEncoderForFormat(format) != null;
+        return RecordingConfig.encoderSize(codec, size, fps(preferences.getInt("fps", 15)),
+                bitrate(preferences.getInt("bitrate", 1_000_000))) != null;
     }
     static String summary(Context context) {
         SharedPreferences p = get(context);

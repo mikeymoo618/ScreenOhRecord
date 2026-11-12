@@ -1,12 +1,17 @@
 package com.screenohrecord.app;
 
 import android.annotation.SuppressLint;
+import android.Manifest;
+import android.app.AppOpsManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
+import android.os.Build;
+import android.os.Process;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.provider.DocumentsContract;
@@ -17,13 +22,14 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import java.io.IOException;
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/** Owns only files created by this app. No media-reading permission is needed. */
+/** Owns recording outputs. Android 9 public storage requires legacy read/write access. */
 @SuppressLint("ApplySharedPref") // Recovery markers must reach disk before capture/process exit.
 final class RecordingStore {
     private static final Object HISTORY_LOCK = new Object();
@@ -58,11 +64,26 @@ final class RecordingStore {
         preferences = this.context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE);
     }
 
+    static boolean needsLegacyStoragePermission(Context context) {
+        return Build.VERSION.SDK_INT < 29 && RecordingOptions.get(context).getString("folder_uri", null) == null
+                && (!hasLegacyPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE, AppOpsManager.OPSTR_READ_EXTERNAL_STORAGE)
+                || !hasLegacyPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE, AppOpsManager.OPSTR_WRITE_EXTERNAL_STORAGE));
+    }
+
+    private static boolean hasLegacyPermission(Context context, String permission, String operation) {
+        if (context.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) return false;
+        try {
+            int mode = context.getSystemService(AppOpsManager.class).checkOpNoThrow(operation, Process.myUid(), context.getPackageName());
+            return mode == AppOpsManager.MODE_ALLOWED || mode == AppOpsManager.MODE_DEFAULT;
+        } catch (RuntimeException error) { return false; }
+    }
+
     Output create() throws IOException {
         String name = "ScreenOhRecord_" + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT)
                 .format(new Date()) + ".mp4";
         String folder = RecordingOptions.get(context).getString("folder_uri", null);
         if (folder != null) return createInFolder(Uri.parse(folder), name);
+        if (Build.VERSION.SDK_INT < 29) return createLegacyPublic(name);
         ContentValues values = new ContentValues();
         values.put(MediaStore.Video.Media.DISPLAY_NAME, name);
         values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
@@ -83,6 +104,36 @@ final class RecordingStore {
             return new Output(uri, name, descriptor);
         } catch (IOException | RuntimeException error) {
             discard(uri);
+            throw error;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private Output createLegacyPublic(String name) throws IOException {
+        if (needsLegacyStoragePermission(context)) throw new IOException("Allow storage access or choose a local folder in Settings");
+        recoverInterrupted();
+        if (preferences.contains("unfinished")) throw new IOException("Restore access to the previous incomplete recording before starting another");
+        File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "ScreenOhRecord");
+        if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("Cannot create the Movies/ScreenOhRecord folder");
+        File file = new File(directory, name);
+        if (!file.createNewFile()) throw new IOException("A recording with this filename already exists");
+        Uri uri = null;
+        try {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Video.Media.DISPLAY_NAME, name);
+            values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+            values.put(MediaStore.Video.Media.DATA, file.getAbsolutePath());
+            values.put(MediaStore.Video.Media.DATE_ADDED, System.currentTimeMillis() / 1000);
+            uri = context.getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new IOException("Cannot register the local recording");
+            if (!preferences.edit().putString("unfinished", uri.toString()).commit())
+                throw new IOException("Cannot retain the recording recovery marker");
+            ParcelFileDescriptor descriptor = context.getContentResolver().openFileDescriptor(uri, "w");
+            if (descriptor == null) throw new IOException("Cannot open the local video file");
+            return new Output(uri, name, descriptor);
+        } catch (IOException | RuntimeException error) {
+            if (uri != null) discard(uri);
+            else if (!file.delete()) android.util.Log.w("ScreenOhRecord", "Could not remove empty legacy recording file");
             throw error;
         }
     }
@@ -114,14 +165,21 @@ final class RecordingStore {
     }
 
     void complete(Output output, long bytes, long duration) throws IOException {
+        if ((Build.VERSION.SDK_INT < 29 || !"media".equals(output.uri.getAuthority()))
+                && !preferences.edit().putString("finalized_document", output.uri.toString()).commit()) {
+            throw new IOException("Video saved, but its recovery state could not be stored");
+        }
         if ("media".equals(output.uri.getAuthority())) {
             ContentValues values = new ContentValues();
-            values.put(MediaStore.Video.Media.IS_PENDING, 0);
+            if (Build.VERSION.SDK_INT >= 29) values.put(MediaStore.Video.Media.IS_PENDING, 0);
+            else {
+                values.put(MediaStore.Video.Media.SIZE, Math.max(0, bytes));
+                values.put(MediaStore.Video.Media.DURATION, Math.max(0, duration));
+                values.put(MediaStore.Video.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000);
+            }
             if (context.getContentResolver().update(output.uri, values, null, null) != 1) {
                 throw new IOException("Cannot publish the saved recording");
             }
-        } else if (!preferences.edit().putString("finalized_document", output.uri.toString()).commit()) {
-            throw new IOException("Video saved, but its recovery state could not be stored");
         }
         try {
             JSONObject item = new JSONObject();
@@ -151,19 +209,20 @@ final class RecordingStore {
             if (SettingsActivity.LOCAL_AUTHORITY.equals(uri.getAuthority())) {
                 if (!DocumentsContract.deleteDocument(context.getContentResolver(), uri)) return false;
             }
-            else context.getContentResolver().delete(uri, null, null);
-            return preferences.edit().remove("unfinished").remove("finalized_document").commit();
+            else if (context.getContentResolver().delete(uri, null, null) == 0
+                    && availability(new Entry(uri, "", 0, 0)) != Availability.MISSING) return false;
         } catch (IOException | RuntimeException error) {
-            // Keep marker for the next launch. Never claim cleanup succeeded on failure.
-            return false;
+            if (availability(new Entry(uri, "", 0, 0)) != Availability.MISSING) return false;
         }
+        return preferences.edit().remove("unfinished").remove("finalized_document").commit();
     }
 
     void recoverInterrupted() {
         String value = preferences.getString("unfinished", null);
         if (value == null) return;
         Uri uri = Uri.parse(value);
-        if (SettingsActivity.LOCAL_AUTHORITY.equals(uri.getAuthority()) && DocumentsContract.isDocumentUri(context, uri)) {
+        boolean legacyMedia = Build.VERSION.SDK_INT < 29 && "media".equals(uri.getAuthority());
+        if (legacyMedia || (SettingsActivity.LOCAL_AUTHORITY.equals(uri.getAuthority()) && DocumentsContract.isDocumentUri(context, uri))) {
             if (value.equals(preferences.getString("finalized_document", null))) {
                 preferences.edit().remove("unfinished").remove("finalized_document").commit();
                 return;
@@ -211,6 +270,9 @@ final class RecordingStore {
             return Availability.UNAVAILABLE;
         boolean document = SettingsActivity.LOCAL_AUTHORITY.equals(entry.uri.getAuthority());
         if (!document && !"media".equals(entry.uri.getAuthority())) return Availability.UNAVAILABLE;
+        boolean legacyMedia = !document && Build.VERSION.SDK_INT < 29;
+        if (legacyMedia && !hasLegacyPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE, AppOpsManager.OPSTR_READ_EXTERNAL_STORAGE))
+            return Availability.UNAVAILABLE;
         try {
             if (document) {
                 Uri parent = DocumentsContract.buildDocumentUriUsingTree(entry.uri,
@@ -234,10 +296,20 @@ final class RecordingStore {
                 }
             }
             try (Cursor cursor = context.getContentResolver().query(entry.uri,
-                    new String[]{MediaStore.Video.Media._ID},
+                    legacyMedia ? new String[]{MediaStore.Video.Media._ID, MediaStore.Video.Media.DATA}
+                            : new String[]{MediaStore.Video.Media._ID},
                     null, null, null)) {
                 if (cursor == null) return Availability.UNAVAILABLE;
-                return cursor.moveToFirst() ? Availability.PRESENT : Availability.MISSING;
+                if (!cursor.moveToFirst()) return Availability.MISSING;
+                if (legacyMedia) {
+                    String path = cursor.getString(1);
+                    if (path == null) return Availability.UNAVAILABLE;
+                    File file = new File(path);
+                    File parent = file.getParentFile();
+                    if (parent == null || !parent.canRead()) return Availability.UNAVAILABLE;
+                    return file.isFile() ? Availability.PRESENT : Availability.MISSING;
+                }
+                return Availability.PRESENT;
             }
         } catch (RuntimeException error) {
             // Revoked access and provider failures do not prove that a recording was deleted.
