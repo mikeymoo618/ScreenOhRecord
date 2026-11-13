@@ -1,6 +1,7 @@
 package com.screenohrecord.app;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
@@ -22,6 +23,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** User-configured Wi-Fi transfer destinations. Credentials stay on the device. */
 public final class TransfersActivity extends Activity {
+    private static final int SOURCE_FOLDER = 31;
+    private boolean saveAfterFolder;
+    private TextView sourceFolder;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private LinearLayout root;
@@ -53,8 +57,10 @@ public final class TransfersActivity extends Activity {
         scroll.requestApplyInsets();
         button("Done", this::finish);
         label("Automatic video moves", 26);
-        label("Completed ScreenOhRecord videos in your current recording folder can move to your server over Wi-Fi. "
+        label("Any video in your selected recording folder can move to your server over Wi-Fi after the selected age. "
                 + "Files are read back and verified before the local copy is permanently deleted.", 15);
+        sourceFolder = label("Recording and transfer folder", 17);
+        button("Choose video folder", () -> chooseSourceFolder(false)).setId(R.id.transfer_source);
         enabled = new Switch(this);
         enabled.setText("Enable automatic moves");
         enabled.setId(R.id.transfer_enabled);
@@ -91,7 +97,7 @@ public final class TransfersActivity extends Activity {
         password = field("Password", "", savedPassword, R.id.transfer_password);
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         password.setSaveEnabled(false);
-        delay = field("Minutes after recording completes", "60", Integer.toString(p.getInt("delay", 60)), R.id.transfer_delay);
+        delay = field("Minutes since the video was last modified", "60", Integer.toString(p.getInt("delay", 60)), R.id.transfer_delay);
         delay.setInputType(InputType.TYPE_CLASS_NUMBER);
         label("Save applies connection changes. Checks run about every 15 minutes and Android may defer them. "
                 + "Completed videos can move while you record. The active recording stays on the device. "
@@ -130,10 +136,53 @@ public final class TransfersActivity extends Activity {
         if (busy) return;
         try {
             TransferSettings.Config config = form();
+            if (config.enabled && android.os.Build.VERSION.SDK_INT >= 29
+                    && RecordingOptions.get(this).getString("folder_uri", null) == null) {
+                chooseSourceFolder(true);
+                return;
+            }
             TransferSettings.save(this, config);
             enabled.setChecked(TransferSettings.preferences(this).getBoolean("enabled", false));
             status.setText(enabled.isChecked() ? "Saved. Automatic moves enabled over Wi-Fi." : "Saved. Automatic moves disabled.");
         } catch (IOException error) { status.setText(error.getMessage()); }
+    }
+
+    private void chooseSourceFolder(boolean saveAfter) {
+        saveAfterFolder = saveAfter;
+        String current = RecordingOptions.get(this).getString("folder_uri", null);
+        android.net.Uri initial = current == null
+                ? android.provider.DocumentsContract.buildDocumentUri(SettingsActivity.LOCAL_AUTHORITY, "primary:Movies/ScreenOhRecord")
+                : android.net.Uri.parse(current);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                .putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, initial)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        try { startActivityForResult(intent, SOURCE_FOLDER); }
+        catch (RuntimeException error) { status.setText("Open Recording settings and choose a local video folder."); }
+    }
+
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != SOURCE_FOLDER) return;
+        boolean saveNow = saveAfterFolder;
+        saveAfterFolder = false;
+        if (result != RESULT_OK || data == null) return;
+        try {
+            SettingsActivity.retainLocalFolder(this, data);
+            sourceFolder.setText("Recording and transfer folder\n" + RecordingOptions.folder(this));
+            TransferScheduler.schedule(this);
+            if (saveNow) saveSettings();
+        } catch (RuntimeException error) { status.setText("Choose a local folder and allow read/write access."); }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (sourceFolder != null) {
+            String message = "Recording and transfer folder\n" + RecordingOptions.folder(this);
+            if (android.os.Build.VERSION.SDK_INT >= 29 && RecordingOptions.get(this).getString("folder_uri", null) == null)
+                message += "\nChoose this folder once to allow access to all its videos.";
+            sourceFolder.setText(message);
+        }
     }
 
     private void testConnection() {

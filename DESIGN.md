@@ -69,7 +69,7 @@ Android 9 encoder-size fitting first tests the requested dimensions with the sel
 Approved on 2026-11-13 for ScreenOhRecord 1.3.0/build 16.
 
 - Disabled by default. User selects SMB or plain FTP, destination, credentials and delay. Default delay is 60 minutes after recording completes.
-- Monitor completed ScreenOhRecord recordings through a durable completion queue independent of the 50-row recent list. Import known recent recordings and discover older completed recordings in the selected directory when first monitored. Only the currently selected recording directory is eligible. Files belonging to other apps are excluded.
+- Scan direct children of the selected recording folder on every check. Accept any filename using video MIME type or recognized extension, without ownership or duration restrictions. Refresh last-modified time on each scan. Unknown timestamps use persisted first-discovery time. Preserve the independent durable queue and active-recording exclusion. Android 10+ requires a persisted local folder grant. Android 9 default-folder enumeration includes unindexed files.
 - Use a persisted Android job with a 15-minute polling interval. Android battery restrictions can defer execution. The delay is an eligibility threshold. Check current Wi-Fi throughout each operation. Android scheduling requires Wi-Fi. FTP sockets bind to the Wi-Fi Network. SMB sockets bind to its IPv4 address and require it to remain the active network. VPN and cellular transports are excluded.
 - SMB uses jcifs-ng with SMB2.02 through SMB2.1, compatible with SMB2-enabled SMB3 servers. SMB1, DFS referrals and port-139 fallback are disabled. Servers requiring SMB3 encryption are outside this implementation. FTP uses Commons Net in passive binary mode with control-peer data addresses.
 - Temporary remote names end in .uploading. Stable final names include source identity and content hash, retaining the recognizable recording filename. Verify temporary and final files through byte count and full SHA-256 read-back. Recheck local content before permanent deletion. Retrying a completed remote copy verifies and reuses it.
@@ -82,3 +82,7 @@ The user explicitly selected SMB and unencrypted FTP. Existing background-job sc
 ## 1.3.1 simultaneous recording and transfers
 
 Completed-video transfers continue during recording and capture consent. The active output marker excludes unfinished recordings from eligibility and is checked again before local deletion. Deleting a verified older recording updates its history and transfer queue while preserving the current recording's recovery marker. Update downloads and checks keep their recording/capture-consent exclusion.
+
+## 1.3.2 broader folder monitoring
+
+Canonical file identity deduplicates document and MediaStore aliases while retaining stable remote transfer identities. Files moved outside the selected folder leave its queue. The folder picker sets the recording destination and transfer source together. File failures retain their local copy and allow other eligible files to continue. Original extensions are preserved. Local content and modification time are rechecked after full remote verification and before permanent deletion.

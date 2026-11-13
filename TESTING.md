@@ -1,3 +1,26 @@
+# ScreenOhRecord 1.3.2 verification
+
+Validated on 2026-11-13 and 2026-11-14 with task-owned Android 9/API 28 and Android 16/API 36 emulators.
+
+- Package is com.screenohrecord.app, version 1.3.2/build 18, minimum SDK 28 and target SDK 36.
+- Signed APK artifacts/ScreenOhRecord-1.3.2.apk is 6,570,360 bytes.
+- APK SHA-256 is c1857b29e393fe654f310729f02c0c76c7f5f7dff183e475c141410dfff9e2ac.
+- Original signing certificate SHA-256 remains 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8. APK signature verification passed.
+- Final release build and lint passed with zero errors and 41 warnings in artifacts/build-1.3.2-final.log. Instrumentation build passed in artifacts/build-test-1.3.2-isolation.log.
+- Android 16 and Android 9 transfer suites each passed 23 unique status groups in artifacts/instrumentation-release-1.3.2-verified16.log and artifacts/instrumentation-release-1.3.2-verified9.log.
+- Both suites cover arbitrary MKV/WebM/MOV/AVI filenames, repeated discovery, refreshed modification timestamps, original extensions, non-video exclusion, moved-out file removal, default-folder MediaStore/document identity migration, active-output exclusion and history cleanup. Android 9 also covers unindexed raw default-folder video discovery and permanent deletion.
+- SMB and FTP tests cover full remote read-back verification, permanent local deletion, failed-file continuation, invalid credentials, interruption, collisions, checksum corruption, read-only and missing destinations, Wi-Fi loss/recovery, actual Android background jobs and simultaneous microphone recording.
+- Android 16 recording regression passed 20 unique groups in artifacts/instrumentation-release-1.3.2-regression16-full.log. Coverage includes saved resolution/frame-rate/bitrate/codec/microphone/folder preferences, low bitrates, AV1, thumbnails, external deletion, floating controls and updater validation.
+- Android 9 recording regression passed 13 unique groups in artifacts/instrumentation-release-1.3.2-regression9.log. Coverage includes legacy permission denial/grant, selected-folder access, decodable recordings, microphone audio, floating controls and unsupported AV1 handling.
+- All four final bounded runners completed successfully. Combined runtime evidence is artifacts/instrumentation-release-1.3.2-combined.log and the machine-readable report is artifacts/verification-1.3.2.json.
+- Task-owned emulators, fixture supervisor/descendants and local SMB/FTP listeners were stopped after testing.
+
+Android 10 and newer require a one-time local folder selection in Automatic video moves to grant access to every video in that folder. This also sets the recording destination. Monitoring covers direct child video files. Unknown modification timestamps start the configured delay at first discovery.
+
+Physical Galaxy S8/S22 validation remains pending. Android 9 network fixtures use ADB reverse tunnels to isolate documented emulator TCP byte loss while preserving native Wi-Fi guards and actual Android background jobs. Earlier fixture shell quoting, folder-picker positioning and queue-isolation failures were corrected before the final passing suites. The first Android 16 recording run passed runtime checks, then exceeded the 8 MiB diagnostic snapshot bound. Its complete repeat passed with a 16 MiB diagnostic bound. All earlier logs are retained.
+
+---
+
 # ScreenOhRecord 1.3.1 verification
 
 Validated on 2026-11-13 using task-owned Android 9/API 28 and Android 16/API 36 emulators. Physical Galaxy S8 and S22 validation remains pending.

@@ -1,4 +1,5 @@
 <resources>
+    <item name="transfer_source" type="id" />
     <item name="open_transfers" type="id" />
     <item name="transfer_enabled" type="id" />
     <item name="transfer_protocol" type="id" />

@@ -176,18 +176,19 @@ public final class SettingsActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request != FOLDER_REQUEST || result != RESULT_OK || data == null || data.getData() == null) return;
+        try { retainLocalFolder(this, data); refresh(); }
+        catch (RuntimeException error) { toast("Cannot keep access to this folder. Choose another local folder."); }
+    }
+    static void retainLocalFolder(android.content.Context context, Intent data) {
         Uri tree = data.getData();
-        if (!isLocalTree(tree)) { toast("Choose a folder on this phone or local removable storage."); return; }
-        try {
-            int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            if ((flags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == 0) throw new SecurityException();
-            if ((flags & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) throw new SecurityException();
-            getContentResolver().takePersistableUriPermission(tree,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            preferences.edit().putString("folder_uri", tree.toString())
-                    .putString("folder_label", DocumentsContract.getTreeDocumentId(tree)).apply();
-            refresh();
-        } catch (RuntimeException error) { toast("Cannot keep access to this folder. Choose another local folder."); }
+        if (tree == null || !isLocalTree(tree)) throw new IllegalArgumentException("Choose a local video folder");
+        int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if ((flags & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == 0) throw new SecurityException();
+        if ((flags & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) throw new SecurityException();
+        context.getContentResolver().takePersistableUriPermission(tree,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        RecordingOptions.get(context).edit().putString("folder_uri", tree.toString())
+                .putString("folder_label", DocumentsContract.getTreeDocumentId(tree)).apply();
     }
     static boolean isLocalTree(Uri uri) {
         return "content".equals(uri.getScheme()) && LOCAL_AUTHORITY.equals(uri.getAuthority())

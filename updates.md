@@ -1,5 +1,15 @@
 # Updates
 
+## 2026-11-13 — 1.3.2 broad video-folder discovery
+
+- Scans the selected folder at every transfer check and accepts any video filename, MIME type or recognized extension. Uses refreshed last-modified timestamps and the configured delay. Unknown timestamps use persistent first-discovery time.
+- Grants full-folder access through the local Android folder picker. The selected source also sets the recording destination. Android 9 default-folder discovery includes unindexed video files.
+- Preserves file extensions and transfer identities across URI aliases. Removes moved-out files from the current queue and excludes active recordings across document/MediaStore aliases.
+- Continues after individual failures, retaining failed files for retry. Successful moves retain remote read-back verification and local-content checks, adding a modification-time recheck before permanent deletion.
+- Adds broad-discovery, filename/format, timestamp refresh, failed-file continuation and folder-scope instrumentation coverage. Preserves earlier diagnostic logs.
+- Version 1.3.2/build 18. Android 9 and Android 16 verification is recorded in TESTING.md.
+- Final verification on 2026-11-14 passed both 23-group transfer suites, the 20-group Android 16 recording regression and the 13-group Android 9 regression. Build/lint and original-signature verification passed. Test fixtures and emulators were stopped. Physical-phone validation remains pending.
+
 ## 2026-11-13 — 1.3.1 simultaneous recording and completed-video moves
 
 - Allows Wi-Fi SMB/FTP transfers during recording and screen-capture consent by default.

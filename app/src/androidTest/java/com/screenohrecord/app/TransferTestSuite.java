@@ -59,10 +59,15 @@ final class TransferTestSuite {
             android.net.ConnectivityManager manager = context.getSystemService(android.net.ConnectivityManager.class);
             check(TransferConnection.wifi(context) != null, "Emulator Wi-Fi missing: "
                     + manager.getNetworkCapabilities(manager.getActiveNetwork()));
+            chooseTestFolder();
             testSettings();
             acquireGate();
             testQueue();
             testDiscovery();
+            testBroadDiscovery();
+            testFolderScope();
+            testDefaultFolderAliases();
+            testFailedFileContinuation();
             testProtocol("ftp");
             testProtocol("smb");
             testCorruptionAndReadOnly();
@@ -118,9 +123,9 @@ final class TransferTestSuite {
         RecordingStore.Entry first = fixture(new byte[]{1, 2, 3});
         context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE).edit().remove("history").commit();
         check(store.transferEntries().stream().anyMatch(entry -> entry.uri.equals(first.uri)), "Queue depends on recent history");
-        check(!TransferEngine.eligible(first, "", System.currentTimeMillis(), 60), "Young recording eligible");
+        check(!TransferEngine.eligible(first, first.destination, System.currentTimeMillis(), 60), "Young recording eligible");
         check(!TransferEngine.eligible(first, "other-folder", System.currentTimeMillis() + 3_600_000, 1), "Other folder eligible");
-        check(!TransferEngine.eligible(first, "", first.completedAt - 1, 1), "Future recording eligible");
+        check(!TransferEngine.eligible(first, first.destination, first.completedAt - 1, 1), "Future recording eligible");
         TransferSettings.save(context, config("ftp", false, "videos", "screenohrecord-test", PASSWORD, 1));
         check(TransferEngine.run(context, () -> false) == 0 && present(first), "Disabled feature moved a recording");
         TransferSettings.save(context, config("ftp"));
@@ -216,34 +221,201 @@ final class TransferTestSuite {
         }
     }
 
+    private void chooseTestFolder() throws Exception {
+        String name = "VT" + Long.toHexString(System.nanoTime() & 0xffffff);
+        chooseTestFolder(name);
+    }
+
+    private void chooseTestFolder(String name) throws Exception {
+        shell("mkdir -p /sdcard/Movies/" + name);
+        Activity settings = instrumentation.startActivitySync(new Intent(context, SettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        instrumentation.runOnMainSync(() -> {
+            Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            picker.putExtra(Intent.EXTRA_LOCAL_ONLY, true);
+            picker.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                    android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",
+                            "primary:Movies/" + name));
+            settings.startActivityForResult(picker, 20);
+        });
+        PrivacyTestRunner runner = (PrivacyTestRunner) instrumentation;
+        if (android.os.Build.VERSION.SDK_INT == 28) runner.clickSystemText("Select");
+        else { runner.clickSystemText("Use this folder"); runner.clickSystemText("Allow"); }
+        long deadline = SystemClock.elapsedRealtime() + 8000;
+        while (!RecordingOptions.get(context).getString("folder_uri", "").contains(name)
+                && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(RecordingOptions.get(context).getString("folder_uri", "").contains(name), "Test folder grant missing");
+        instrumentation.runOnMainSync(settings::finish);
+    }
+
     private void testDiscovery() throws Exception {
-        byte[] source = java.nio.file.Files.readAllBytes(new java.io.File(context.getExternalFilesDir(null), "transfer-source.mp4").toPath());
-        RecordingStore.Entry video = fixture(source);
-        String path;
-        try (android.database.Cursor cursor = context.getContentResolver().query(video.uri,
-                new String[]{android.provider.MediaStore.Video.Media.DATA}, null, null, null)) {
-            check(cursor != null && cursor.moveToFirst(), "Synthetic source path unavailable");
-            path = cursor.getString(0);
-        }
-        java.util.concurrent.CountDownLatch scanned = new java.util.concurrent.CountDownLatch(1);
-        android.media.MediaScannerConnection.scanFile(context, new String[]{path}, new String[]{"video/mp4"},
-                (ignored, uri) -> scanned.countDown());
-        check(scanned.await(20, java.util.concurrent.TimeUnit.SECONDS), "Synthetic MP4 scan timed out");
+        RecordingStore.Entry video = fixture(CONTENT);
         SharedPreferences p = context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE);
-        p.edit().remove("transfer_pending").remove("history").remove("transfer_scanned").commit();
+        p.edit().remove("transfer_pending").remove("history").commit();
+        store.scanTransferFolder();
         check(store.transferEntries().stream().anyMatch(entry -> entry.uri.equals(video.uri)),
-                "Directory scan missed completed video absent from recent history");
+                "Directory scan missed video absent from recent history");
         store.delete(video);
-        p.edit().clear().putBoolean("transfer_migrated", true).putString("transfer_scanned", "").commit();
         RecordingStore.Output unfinished = store.create();
         try {
+            store.scanTransferFolder();
             check(store.transferEntries().isEmpty(), "Unfinished recording queued");
         } finally { unfinished.descriptor.close(); store.discard(unfinished.uri); }
         List<RecordingStore.Entry> batch = new ArrayList<>();
         for (int i = 0; i < 51; i++) batch.add(fixture(new byte[]{1, 2, 3}));
-        check(store.entries().size() == 50 && store.transferEntries().size() == 51, "Queue lost recordings beyond recent-history limit");
+        check(store.entries().size() == 50 && store.transferEntries().size() == 51, "Queue lost videos beyond recent-history limit");
         for (RecordingStore.Entry entry : batch) store.delete(entry);
-        pass("directory scan discovers completed files outside history, unfinished exclusion and queue beyond 50 recordings");
+        pass("recurring directory scan discovers videos outside history, excludes unfinished output and retains more than 50 files");
+    }
+
+    private RecordingStore.Entry externalVideo(String name, String mime, byte[] content) throws Exception {
+        Uri tree = Uri.parse(RecordingOptions.get(context).getString("folder_uri", ""));
+        Uri parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree,
+                android.provider.DocumentsContract.getTreeDocumentId(tree));
+        Uri uri = android.provider.DocumentsContract.createDocument(context.getContentResolver(), parent, mime, name);
+        check(uri != null, "Could not create folder-discovery fixture");
+        try (OutputStream output = context.getContentResolver().openOutputStream(uri, "w")) { output.write(content); }
+        store.scanTransferFolder();
+        for (RecordingStore.Entry entry : store.transferEntries()) {
+            if (entry.uri.equals(uri)) { fixtures.add(entry); return entry; }
+        }
+        throw new AssertionError("Arbitrary video file was not discovered: " + name);
+    }
+
+    private void testBroadDiscovery() throws Exception {
+        check(RecordingStore.videoFile("older filename.MKV", "application/octet-stream"), "MKV extension rejected");
+        check(RecordingStore.videoFile("camera export", "video/webm"), "Video MIME type rejected");
+        check(!RecordingStore.videoFile("notes.txt", "text/plain"), "Non-video selected");
+        check(!RecordingStore.videoFile("folder.mp4", android.provider.DocumentsContract.Document.MIME_TYPE_DIR), "Directory selected as video");
+        RecordingStore.Entry first = externalVideo("old app recording.MKV", "video/x-matroska", CONTENT);
+        age(first);
+        TransferSettings.save(context, config("ftp"));
+        check(TransferEngine.run(context, () -> false) == 1 && !present(first), "Arbitrary old MKV did not move");
+        check(TransferEngine.remoteName(context, first, hash(CONTENT))
+                .endsWith(first.name.substring(first.name.lastIndexOf('.'))), "Original extension changed");
+        RecordingStore.Entry later = externalVideo("second recorder clip.webm", "video/webm", CONTENT);
+        age(later);
+        check(TransferEngine.run(context, () -> false) == 1 && !present(later), "New file after initial scan was missed");
+        RecordingStore.Entry edited = externalVideo("edited video.mov", "video/quicktime", CONTENT);
+        age(edited);
+        touch(edited.uri, false);
+        check(TransferEngine.run(context, () -> false) == 0 && present(edited), "Recently modified file used an old queue timestamp");
+        age(edited);
+        check(TransferEngine.run(context, () -> false) == 1 && !present(edited), "Aged modified video did not move");
+        pass("any filenames and video formats, recurring discovery, original extensions and refreshed modification timestamps");
+    }
+
+    private void testFolderScope() throws Exception {
+        Uri tree = Uri.parse(RecordingOptions.get(context).getString("folder_uri", ""));
+        Uri parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree,
+                android.provider.DocumentsContract.getTreeDocumentId(tree));
+        Uri text = android.provider.DocumentsContract.createDocument(context.getContentResolver(), parent,
+                "text/plain", "keep these notes.txt");
+        check(text != null, "Could not create non-video fixture");
+        String outside = "/sdcard/Movies/outside-" + Long.toHexString(System.nanoTime()) + ".mkv";
+        try {
+            try (OutputStream output = context.getContentResolver().openOutputStream(text, "w")) {
+                output.write(CONTENT);
+            }
+            touch(text, true);
+            RecordingStore.Entry moved = externalVideo("moved outside.mkv", "video/x-matroska", CONTENT);
+            age(moved);
+            String id = android.provider.DocumentsContract.getDocumentId(moved.uri);
+            String path = android.os.Environment.getExternalStorageDirectory().getAbsolutePath()
+                    + "/" + id.substring("primary:".length());
+            shell("mv '" + path.replace("'", "'\\''") + "' '" + outside + "'");
+            store.scanTransferFolder();
+            check(store.transferEntries().stream().noneMatch(entry -> entry.uri.equals(moved.uri)
+                    || entry.uri.equals(text)), "Out-of-folder or non-video file remained queued");
+            TransferSettings.save(context, config("ftp"));
+            check(TransferEngine.run(context, () -> false) == 0, "Folder-scope exclusions transferred");
+            try (java.io.InputStream input = context.getContentResolver().openInputStream(text)) {
+                check(input != null && input.read() == (CONTENT[0] & 255), "Non-video file changed");
+            }
+            check(RecordingStore.sameDirectory("", android.provider.DocumentsContract.buildTreeDocumentUri(
+                    SettingsActivity.LOCAL_AUTHORITY, "primary:Movies/ScreenOhRecord").toString()),
+                    "Default-folder alias changed identity");
+        } finally {
+            android.provider.DocumentsContract.deleteDocument(context.getContentResolver(), text);
+            shell("rm -f '" + outside + "'");
+        }
+        pass("old non-video remains untouched, moved-out video leaves queue and default folder aliases match");
+    }
+
+    private void testDefaultFolderAliases() throws Exception {
+        SharedPreferences options = RecordingOptions.get(context);
+        SharedPreferences records = context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE);
+        Map<String, ?> previousRecords = new HashMap<>(records.getAll());
+        String selected = options.getString("folder_uri", "");
+        String label = options.getString("folder_label", "");
+        RecordingStore.Output output = null;
+        java.io.File raw = null;
+        try {
+            if (android.os.Build.VERSION.SDK_INT == 28) {
+                shell("pm grant " + context.getPackageName() + " android.permission.READ_EXTERNAL_STORAGE");
+                shell("pm grant " + context.getPackageName() + " android.permission.WRITE_EXTERNAL_STORAGE");
+            }
+            options.edit().remove("folder_uri").remove("folder_label").commit();
+            output = store.create();
+            try (OutputStream stream = new ParcelFileDescriptor.AutoCloseOutputStream(output.descriptor)) {
+                stream.write(CONTENT);
+            }
+            Uri media = output.uri;
+            chooseTestFolder("ScreenOhRecord");
+            store.scanTransferFolder();
+            String name = output.name;
+            check(store.transferEntries().stream().noneMatch(entry -> entry.name.equals(name)),
+                    "Active MediaStore output queued through its document alias");
+            store.complete(output, CONTENT.length, 0);
+            store.scanTransferFolder();
+            List<RecordingStore.Entry> aliases = new ArrayList<>();
+            for (RecordingStore.Entry entry : store.transferEntries()) {
+                if (entry.name.equals(name)) aliases.add(entry);
+            }
+            check(aliases.size() == 1 && aliases.get(0).transferIdentity.equals(media.toString()),
+                    "MediaStore-to-document migration duplicated or changed transfer identity");
+            RecordingStore.Entry rebound = aliases.get(0);
+            check(store.entries().stream().anyMatch(entry -> entry.uri.equals(rebound.uri)),
+                    "Recent history retained the old MediaStore alias");
+            store.delete(rebound);
+            check(store.entries().stream().noneMatch(entry -> entry.name.equals(name)), "Alias history retained after deletion");
+            if (android.os.Build.VERSION.SDK_INT == 28) {
+                options.edit().remove("folder_uri").remove("folder_label").commit();
+                raw = new java.io.File(android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_MOVIES), "ScreenOhRecord/unindexed-" + System.nanoTime() + ".mkv");
+                try (OutputStream stream = new java.io.FileOutputStream(raw)) { stream.write(CONTENT); }
+                check(raw.setLastModified(1577836800000L), "Could not age raw video");
+                store.scanTransferFolder();
+                Uri rawUri = Uri.fromFile(raw);
+                RecordingStore.Entry discovered = null;
+                for (RecordingStore.Entry entry : store.transferEntries()) {
+                    if (entry.uri.equals(rawUri)) discovered = entry;
+                }
+                check(discovered != null && discovered.completedAt == raw.lastModified(), "Unindexed default-folder video missed");
+                store.delete(discovered);
+                check(!raw.exists(), "Unindexed default-folder video was not permanently deleted");
+            }
+        } finally {
+            if (output != null) store.discard(output.uri);
+            if (raw != null && raw.exists()) raw.delete();
+            options.edit().putString("folder_uri", selected).putString("folder_label", label).commit();
+            restore(records, previousRecords);
+        }
+        pass("default-folder MediaStore/document alias migration, active-output exclusion, stable identity and history cleanup"
+                + (android.os.Build.VERSION.SDK_INT == 28 ? "; unindexed Android 9 video discovery and permanent deletion" : ""));
+    }
+
+    private void testFailedFileContinuation() throws Exception {
+        RecordingStore.Entry empty = externalVideo("broken empty video.mp4", "video/mp4", new byte[0]);
+        RecordingStore.Entry healthy = externalVideo("healthy older video.avi", "video/x-msvideo", CONTENT);
+        age(empty); age(healthy);
+        TransferSettings.save(context, config("ftp"));
+        check(TransferEngine.run(context, () -> false) == 1, "One bad file blocked the remaining batch");
+        check(present(empty) && !present(healthy), "Failed-file preservation or healthy-file deletion failed");
+        check(TransferSettings.preferences(context).getString("status", "").contains("1 video(s) retained"), "Partial failure status missing");
+        store.delete(empty);
+        pass("failed file stays local while another eligible video moves, verifies and deletes successfully");
     }
 
     private void testCorruptionAndReadOnly() throws Exception {
@@ -264,45 +436,21 @@ final class TransferTestSuite {
     }
 
     private void testFolder() throws Exception {
-        Uri tree = null;
-        for (android.content.UriPermission permission : context.getContentResolver().getPersistedUriPermissions()) {
-            if (permission.isReadPermission() && permission.isWritePermission()
-                    && SettingsActivity.isLocalTree(permission.getUri())) { tree = permission.getUri(); break; }
-        }
-        if (tree == null) {
-            shell("mkdir -p /sdcard/Movies/SRT");
-            Activity settings = instrumentation.startActivitySync(new Intent(context, SettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            instrumentation.runOnMainSync(() -> settings.findViewById(R.id.settings_folder).performClick());
-            PrivacyTestRunner runner = (PrivacyTestRunner) instrumentation;
-            runner.clickSystemText("SRT");
-            if (android.os.Build.VERSION.SDK_INT == 28) runner.clickSystemText("Select");
-            else { runner.clickSystemText("Use this folder"); runner.clickSystemText("Allow"); }
-            long deadline = SystemClock.elapsedRealtime() + 8000;
-            while (!RecordingOptions.get(context).contains("folder_uri") && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
-            check(RecordingOptions.get(context).contains("folder_uri"), "Folder picker did not retain transfer source");
-            tree = Uri.parse(RecordingOptions.get(context).getString("folder_uri", ""));
-            instrumentation.runOnMainSync(settings::finish);
-        }
-        RecordingOptions.get(context).edit().putString("folder_uri", tree.toString()).commit();
-        context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE).edit().putString("transfer_scanned", tree.toString()).commit();
+        String source = RecordingOptions.get(context).getString("folder_uri", "");
         RecordingStore.Output output = store.create();
         try (OutputStream stream = new ParcelFileDescriptor.AutoCloseOutputStream(output.descriptor)) { stream.write(CONTENT); }
         RecordingOptions.get(context).edit().remove("folder_uri").commit();
         store.complete(output, CONTENT.length, 1000);
-        context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE).edit().putString("transfer_scanned", "").commit();
         RecordingStore.Entry entry = null;
         for (RecordingStore.Entry candidate : store.transferEntries()) {
             if (candidate.uri.equals(output.uri)) { entry = candidate; fixtures.add(candidate); break; }
         }
-        check(entry != null && tree.toString().equals(entry.destination), "Changing settings during recording changed the saved file's folder identity");
-        RecordingOptions.get(context).edit().putString("folder_uri", tree.toString()).commit();
-        context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE).edit().putString("transfer_scanned", tree.toString()).commit();
+        check(entry != null && source.equals(entry.destination), "Changing settings changed the saved file's folder identity");
+        RecordingOptions.get(context).edit().putString("folder_uri", source).commit();
         age(entry);
         TransferSettings.save(context, config("smb"));
         check(TransferEngine.run(context, () -> false) == 1 && !present(entry), "Selected folder SMB move failed");
-        RecordingOptions.get(context).edit().remove("folder_uri").commit();
-        context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE).edit().putString("transfer_scanned", "").commit();
-        pass("selected local document-folder recording transfers and deletes through persisted URI grant");
+        pass("document-folder move and permanent deletion preserve actual source identity when folder settings change during recording");
     }
 
     private void testWifi() throws Exception {
@@ -331,7 +479,7 @@ final class TransferTestSuite {
     private void testConcurrentRecording() throws Exception {
         PrivacyTestRunner runner = (PrivacyTestRunner) instrumentation;
         SharedPreferences records = context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE);
-        RecordingOptions.get(context).edit().remove("folder_uri").putInt("quality", 720)
+        RecordingOptions.get(context).edit().putInt("quality", 720)
                 .putInt("fps", 15).putInt("bitrate", 500000).putString("codec", "h264")
                 .putBoolean("microphone", true).commit();
         records.edit().putString("transfer_scanned", "").commit();
@@ -357,7 +505,7 @@ final class TransferTestSuite {
                 JSONArray queue = new JSONArray(records.getString("transfer_pending", "[]"));
                 JSONObject unfinished = new JSONObject().put("uri", activeUri).put("name", "active-must-stay.mp4")
                         .put("bytes", 1).put("duration", 1).put("completed_at", System.currentTimeMillis() - 120000)
-                        .put("destination", "");
+                        .put("destination", RecordingOptions.get(context).getString("folder_uri", ""));
                 queue.put(unfinished);
                 records.edit().putString("transfer_pending", queue.toString()).commit();
                 TransferSettings.Config destination = config(protocol);
@@ -391,7 +539,7 @@ final class TransferTestSuite {
             for (RecordingStore.Entry entry : store.transferEntries()) if (entry.uri.toString().equals(activeUri)) saved = entry;
             check(saved != null, "Concurrent recording was not finalized into history and transfer queue");
             fixtures.add(saved);
-            check(!TransferEngine.eligible(saved, "", System.currentTimeMillis(), 1), "Newly finished recording ignored the delay");
+            check(!TransferEngine.eligible(saved, RecordingOptions.get(context).getString("folder_uri", ""), System.currentTimeMillis(), 1), "Newly finished recording ignored the delay");
             android.media.MediaMetadataRetriever metadata = new android.media.MediaMetadataRetriever();
             try {
                 metadata.setDataSource(context, saved.uri);
@@ -453,8 +601,34 @@ final class TransferTestSuite {
             if (entry.uri.toString().equals(item.getString("uri"))) item.put("completed_at", System.currentTimeMillis() - 120000);
         }
         check(p.edit().putString("transfer_pending", queue.toString()).commit(), "Could not age fixture");
+        touch(entry.uri, true);
     }
 
+    private void touch(Uri uri, boolean old) throws Exception {
+        String path;
+        if (SettingsActivity.LOCAL_AUTHORITY.equals(uri.getAuthority())) {
+            String id = android.provider.DocumentsContract.getDocumentId(uri);
+            check(id.startsWith("primary:"), "Fixture must be in the primary test folder");
+            path = android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/" + id.substring("primary:".length());
+        } else {
+            try (android.database.Cursor cursor = context.getContentResolver().query(uri,
+                    new String[]{android.provider.MediaStore.MediaColumns.DATA}, null, null, null)) {
+                check(cursor != null && cursor.moveToFirst(), "Fixture path unavailable"); path = cursor.getString(0);
+            }
+        }
+        String quoted = "'" + path.replace("'", "'\\''") + "'";
+        String command = "touch -m " + (old ? "-t 202001010000.00 " : "") + quoted;
+        String result = shellOutput(command + " 2>&1");
+        if (old && store.fileModifiedAt(uri) > System.currentTimeMillis() - 60000) {
+            Bundle diagnostic = new Bundle();
+            diagnostic.putString("stream", "INFO: fixture timestamp needs privileged setup: " + result + "\n");
+            instrumentation.sendStatus(0, diagnostic);
+            result = shellOutput("su 0 " + command + " 2>&1");
+        }
+        long modified = store.fileModifiedAt(uri);
+        check(modified > 0 && (old ? modified < System.currentTimeMillis() - 60000
+                : modified >= System.currentTimeMillis() - 10000), "Fixture timestamp setup failed: " + result + ", timestamp=" + modified);
+    }
     private boolean present(RecordingStore.Entry entry) { return store.availability(entry) == RecordingStore.Availability.PRESENT; }
     private interface Operation { void run() throws Exception; }
     private void expectFailure(Operation operation) throws Exception {
@@ -466,10 +640,22 @@ final class TransferTestSuite {
         Bundle bundle = new Bundle(); bundle.putString("stream", "PASS: " + message + "\n"); instrumentation.sendStatus(0, bundle);
     }
     private void shell(String command) throws IOException {
-        try (ParcelFileDescriptor result = instrumentation.getUiAutomation().executeShellCommand(command);
+        shellOutput(command);
+    }
+    private String shellOutput(String command) throws IOException {
+        java.io.File script = java.io.File.createTempFile("transfer-shell-", ".sh", context.getExternalFilesDir(null));
+        try (OutputStream output = new java.io.FileOutputStream(script)) {
+            output.write((command + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        try (ParcelFileDescriptor result = instrumentation.getUiAutomation().executeShellCommand("sh " + script.getAbsolutePath());
                 java.io.InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(result)) {
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
             byte[] buffer = new byte[4096];
-            while (input.read(buffer) != -1) { }
+            int read;
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+            return new String(output.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        } finally {
+            if (!script.delete()) script.deleteOnExit();
         }
     }
     private String hash(byte[] content) throws Exception {

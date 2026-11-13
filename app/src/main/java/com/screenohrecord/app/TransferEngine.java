@@ -22,7 +22,7 @@ final class TransferEngine {
 
     static boolean eligible(RecordingStore.Entry entry, String destination, long now, int minutes) {
         return entry.completedAt > 0 && now >= entry.completedAt
-                && now - entry.completedAt >= minutes * 60_000L && destination.equals(entry.destination);
+                && now - entry.completedAt >= minutes * 60_000L && RecordingStore.sameDirectory(destination, entry.destination);
     }
 
     static int run(Context context, BooleanSupplier cancelled) throws IOException {
@@ -36,7 +36,10 @@ final class TransferEngine {
                 || !config.revision.equals(TransferSettings.preferences(context).getString("revision", ""))
                 || !destination.equals(RecordingOptions.get(context).getString("folder_uri", ""));
         RecordingStore store = new RecordingStore(context);
+        store.scanTransferFolder();
         int moved = 0;
+        int failed = 0;
+        IOException firstFailure = null;
         // Open no network connection when there are no completed, old-enough recordings.
         TransferConnection remote = null;
         try {
@@ -44,16 +47,31 @@ final class TransferEngine {
                 if (stopped.getAsBoolean()) throw new IOException("Transfer paused. Local recordings retained");
                 if (store.isUnfinished(entry.uri)) continue;
                 if (!eligible(entry, destination, System.currentTimeMillis(), config.delayMinutes)) continue;
-                RecordingStore.Availability availability = store.availability(entry);
-                if (availability == RecordingStore.Availability.MISSING) { store.delete(entry); continue; }
-                if (availability != RecordingStore.Availability.PRESENT)
-                    throw new IOException("Restore access to the recording folder to resume transfers");
-                if (remote == null) remote = new TransferConnection(context, config, stopped);
-                move(context, store, entry, remote);
-                moved++;
-                status(context, "Moved " + moved + " recording(s). Local copies removed after verification.");
+                try {
+                    RecordingStore.Availability availability = store.availability(entry);
+                    if (availability == RecordingStore.Availability.MISSING) { store.delete(entry); continue; }
+                    if (availability != RecordingStore.Availability.PRESENT)
+                        throw new IOException("Restore access to the video folder to resume transfers");
+                    if (remote == null) remote = new TransferConnection(context, config, stopped);
+                    move(context, store, entry, remote);
+                    moved++;
+                    status(context, "Moved " + moved + " video(s). Local copies removed after verification.");
+                } catch (IOException | RuntimeException error) {
+                    if (stopped.getAsBoolean() || TransferConnection.wifi(context) == null)
+                        throw new IOException("Transfer paused. Local videos retained for retry", error);
+                    failed++;
+                    if (firstFailure == null) firstFailure = new IOException("A video could not be moved", error);
+                    android.util.Log.w("ScreenOhRecord", "Video transfer failed; continuing the folder batch", error);
+                    if (remote != null) { remote.close(); remote = null; }
+                }
             }
         } finally { if (remote != null) remote.close(); }
+        if (failed > 0) {
+            String result = "Moved " + moved + " video(s). " + failed + " video(s) retained for retry. Check the destination and folder access.";
+            status(context, result);
+            if (moved == 0) throw new IOException(result, firstFailure);
+            return moved;
+        }
         if (moved == 0) status(context, "Checked recordings. Waiting for the selected delay and Wi-Fi.");
         return moved;
     }
@@ -88,6 +106,9 @@ final class TransferEngine {
         Digest current;
         try (InputStream input = source(context, entry.uri)) { current = digest(input, remote); }
         if (!local.equals(current)) throw new IOException("Local recording changed during transfer. Local file retained");
+        long modified = store.fileModifiedAt(entry.uri);
+        if (modified > 0 && modified != entry.completedAt)
+            throw new IOException("Video modification time changed during transfer. Local file retained for a fresh delay");
         remote.check();
         if (store.isUnfinished(entry.uri)) throw new IOException("The active recording must stay on the device");
         try { store.delete(entry); }
@@ -102,11 +123,13 @@ final class TransferEngine {
                 throw new IOException("Could not retain transfer identity");
         }
         String base = entry.name.replaceAll("[^A-Za-z0-9._-]", "_");
-        if (base.endsWith(".mp4")) base = base.substring(0, base.length() - 4);
+        int dot = base.lastIndexOf('.');
+        String extension = dot > 0 ? base.substring(dot) : "";
+        if (dot > 0) base = base.substring(0, dot);
         if (base.length() > 100) base = base.substring(0, 100);
-        String identity = hex(hash().digest(entry.uri.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        String identity = hex(hash().digest(entry.transferIdentity.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         return base + "-" + install.substring(0, 8) + "-" + identity.substring(0, 8)
-                + "-" + sha256.substring(0, 12) + ".mp4";
+                + "-" + sha256.substring(0, 12) + extension;
     }
 
     private static InputStream source(Context context, Uri uri) throws IOException {

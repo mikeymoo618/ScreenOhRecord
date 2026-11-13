@@ -22,7 +22,8 @@ public final class TransferJob extends JobService {
         new Thread(() -> {
             try { TransferEngine.run(this, token::get); }
             catch (Exception error) {
-                TransferEngine.status(this, "Transfer could not finish. Local files retained for retry. Check connection and folder access.");
+                TransferEngine.status(this, error.getMessage() == null
+                        ? "Transfer could not finish. Check connection and folder access." : error.getMessage());
                 android.util.Log.w("ScreenOhRecord", "Automatic video transfer did not finish", error);
             } finally {
                 TransferEngine.end();

@@ -1,4 +1,6 @@
-# ScreenOhRecord 1.3.1
+# ScreenOhRecord 1.3.2
+
+Version 1.3.2 scans the selected folder on every transfer check. Any filename is eligible when its MIME type or extension identifies a video and its last-modified time is older than the configured delay, which defaults to 60 minutes. Android 10 and newer require a one-time folder selection in Automatic video moves to grant access to all videos in that folder. This also sets the recording destination. Files directly in that folder are scanned. Unknown timestamps start the delay at first discovery. Active recordings stay on the device.
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming or screen-text analysis. Optional SMB/FTP moves transfer completed videos to your configured server over Wi-Fi. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
 
@@ -61,7 +63,7 @@ Pause/resume/stop also work through the main app and recording notification. If 
 
 Saved recordings show a small local thumbnail beside their name, duration and size. Frames are decoded in the background with a bounded memory-only cache; no preview image files are saved. Deleting a recording removes its row and thumbnail immediately and cancels pending preview work. Missing/unreadable videos use a placeholder. Existing Play/Delete controls remain.
 
-The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.1, build 17. It is refreshed from Android package information.
+The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.2, build 18. It is refreshed from Android package information.
 
 ## Local folders and privacy
 
@@ -90,8 +92,8 @@ See TESTING.md, DESIGN.md, RELEASE-PLAN-1.2.0.md and updates.md for evidence, de
 
 Version 1.3.0 adds optional SMB and plain FTP destinations under Settings > Automatic video moves. The feature starts disabled. Enter the server IPv4 address or hostname, port, credentials and destination folder. SMB additionally uses a share name and optional domain. For `//192.168.1.1/video files/videos`, enter server `192.168.1.1`, share `video files` and folder `videos`. FTP paths are relative to the login directory unless an absolute path is entered.
 
-Use Test connection to check login, write, checksum read-back, rename and deletion of a small test file. Enable automatic moves and save. The default delay is 60 minutes after recording completes. Android checks about every 15 minutes and may defer background work for battery management. Transfers require active Wi-Fi and can run during recording or capture consent. Only completed videos are eligible. VPN connections are excluded. Passwords are encrypted in device-local storage using Android Keystore.
+Use Test connection to check login, write, checksum read-back, rename and deletion of a small test file. Enable automatic moves and save. The default delay is 60 minutes after the video was last modified. Android checks about every 15 minutes and may defer background work for battery management. Transfers require active Wi-Fi and can run during recording or capture consent. Only completed videos are eligible. VPN connections are excluded. Passwords are encrypted in device-local storage using Android Keystore.
 
-Completed recordings in the current recording folder are tracked independently of the recent list. Existing recognized recordings are imported from that directory when first used for transfers. Other apps' videos and unfinished recordings stay in place. Remote filenames retain the recording name with a unique suffix. Files are uploaded with an `.uploading` suffix, read back for SHA-256 verification, finalized and checked again before permanent local deletion. Failed attempts retain local files for the next job. A verified remote copy left by an interrupted attempt is reused. Verification adds Wi-Fi traffic because the remote file is read back.
+Videos directly in the selected folder are tracked independently of the recent list and rediscovered on every check, including videos from older versions and other apps. Last-modified time determines eligibility. Active recordings stay on the device. Remote filenames preserve the original extension and include a unique suffix. Uploads use a `.uploading` suffix, then size and full SHA-256 read-back verification, rename and final verification. Local content and modification time are rechecked before permanent deletion. Failed files remain for retry while other eligible files continue. Verification adds Wi-Fi traffic because the remote file is read back.
 
 SMB supports SMB2.02/2.1 on SMB2-enabled SMB3 servers. SMB1 and servers requiring SMB3 encryption are unsupported. Plain FTP sends credentials and videos unencrypted. The destination folder must already exist and permit upload, read, rename and delete operations.
