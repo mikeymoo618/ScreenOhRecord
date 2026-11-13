@@ -1,5 +1,14 @@
 # Updates
 
+## 2026-11-13 — 1.3.1 simultaneous recording and completed-video moves
+
+- Allows Wi-Fi SMB/FTP transfers during recording and screen-capture consent by default.
+- Explicitly excludes unfinished outputs and checks the active-output marker again before deleting a transferred local file.
+- Keeps full destination verification followed by permanent local deletion and history/thumbnail cleanup.
+- Adds live microphone-recording concurrency checks for FTP and SMB, active-file/recovery-marker preservation, final MP4 decoding and the new recording's own transfer delay.
+- Updates transfer descriptions and project rules. Version 1.3.1/build 17.
+
+
 ## 2026-11-13 — 1.3.0 optional SMB/FTP video moves
 
 - Adds disabled-by-default Wi-Fi-only automatic moves with protocol, destination, credentials, delay and a connection test screen.

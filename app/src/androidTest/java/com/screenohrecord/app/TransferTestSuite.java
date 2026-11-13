@@ -68,6 +68,7 @@ final class TransferTestSuite {
             testCorruptionAndReadOnly();
             testFolder();
             testWifi();
+            testConcurrentRecording();
             testJob();
             pass("transfer suite complete");
         } finally {
@@ -128,12 +129,13 @@ final class TransferTestSuite {
         boolean wasRequesting = requesting.getBoolean(null);
         try {
             requesting.setBoolean(null, true);
-            expectFailure(() -> TransferEngine.run(context, () -> false));
-            check(present(first), "Capture-consent exclusion removed local file");
+            check(TransferEngine.run(context, () -> false) == 0, "Young video moved during capture consent");
+            TransferEngine.test(context, config("ftp"), () -> false);
+            check(present(first), "Connection test removed local file during capture consent");
         } finally { requesting.setBoolean(null, wasRequesting); }
         store.delete(first);
         check(store.transferEntries().isEmpty(), "Deleted video remains queued");
-        pass("durable completion queue, delay, clock rollback, current-folder scope, capture-consent exclusion and disabled-file preservation");
+        pass("durable completion queue, delay, clock rollback, current-folder scope, connection test during capture consent and disabled-file preservation");
     }
 
     private void testProtocol(String protocol) throws Exception {
@@ -324,6 +326,91 @@ final class TransferTestSuite {
         check(TransferConnection.wifi(context) != null, "Wi-Fi did not recover");
         check(TransferEngine.run(context, () -> false) == 1, "Wi-Fi recovery failed");
         pass("Wi-Fi off blocks transfer and retains local recording, Wi-Fi recovery completes move");
+    }
+
+    private void testConcurrentRecording() throws Exception {
+        PrivacyTestRunner runner = (PrivacyTestRunner) instrumentation;
+        SharedPreferences records = context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE);
+        RecordingOptions.get(context).edit().remove("folder_uri").putInt("quality", 720)
+                .putInt("fps", 15).putInt("bitrate", 500000).putString("codec", "h264")
+                .putBoolean("microphone", true).commit();
+        records.edit().putString("transfer_scanned", "").commit();
+        List<RecordingStore.Entry> completedVideos = new ArrayList<>();
+        completedVideos.add(fixture(CONTENT));
+        completedVideos.add(fixture(CONTENT));
+        Activity main = instrumentation.startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        try {
+            instrumentation.runOnMainSync(() -> CaptureActivity.launch(context, true, 720));
+            runner.consent(true);
+            runner.awaitState(RecordingService.State.RECORDING);
+            runner.awaitRequestFinished();
+            SystemClock.sleep(1500);
+            String activeUri = records.getString("unfinished", null);
+            check(activeUri != null, "Active recording marker missing");
+            Uri active = Uri.parse(activeUri);
+            check(store.isUnfinished(active), "Active recording not recognized as unfinished");
+            int index = 0;
+            for (String protocol : new String[]{"ftp", "smb"}) {
+                RecordingStore.Entry completed = completedVideos.get(index++);
+                age(completed);
+                // An old queue entry must never make an unfinished output eligible.
+                JSONArray queue = new JSONArray(records.getString("transfer_pending", "[]"));
+                JSONObject unfinished = new JSONObject().put("uri", activeUri).put("name", "active-must-stay.mp4")
+                        .put("bytes", 1).put("duration", 1).put("completed_at", System.currentTimeMillis() - 120000)
+                        .put("destination", "");
+                queue.put(unfinished);
+                records.edit().putString("transfer_pending", queue.toString()).commit();
+                TransferSettings.Config destination = config(protocol);
+                TransferSettings.save(context, destination);
+                check(TransferEngine.run(context, () -> false) == 1, "Completed video did not move while recording via " + protocol);
+                check(store.availability(completed) == RecordingStore.Availability.MISSING, "Transferred local video remains");
+                check(store.entries().stream().noneMatch(entry -> completed.uri.equals(entry.uri)), "Transferred video remains in history");
+                check(activeUri.equals(records.getString("unfinished", null)), "Moving a saved video cleared the active recording marker");
+                check(RecordingService.status().state == RecordingService.State.RECORDING, "Transfer stopped the recording");
+                try (ParcelFileDescriptor descriptor = context.getContentResolver().openFileDescriptor(active, "r")) {
+                    check(descriptor != null, "Active recording was deleted");
+                }
+                String name = TransferEngine.remoteName(context, completed, hash(CONTENT));
+                try (TransferConnection remote = new TransferConnection(context, destination, () -> false)) {
+                    check(remote.exists(name) && remote.size(name) == CONTENT.length, "Final remote copy missing");
+                    check(!remote.exists(name + ".uploading"), "Successful move left a partial upload");
+                }
+                check(store.transferEntries().stream().noneMatch(entry -> completed.uri.equals(entry.uri)), "Completed transfer remains queued");
+                JSONArray remaining = new JSONArray();
+                JSONArray after = new JSONArray(records.getString("transfer_pending", "[]"));
+                for (int row = 0; row < after.length(); row++) {
+                    JSONObject item = after.getJSONObject(row);
+                    if (!activeUri.equals(item.getString("uri"))) remaining.put(item);
+                }
+                records.edit().putString("transfer_pending", remaining.toString()).commit();
+                pass(protocol + " completed video verified/moved/deleted during live microphone recording, active output and recovery marker preserved");
+            }
+            runner.notificationAction("Stop");
+            runner.awaitState(RecordingService.State.IDLE);
+            RecordingStore.Entry saved = null;
+            for (RecordingStore.Entry entry : store.transferEntries()) if (entry.uri.toString().equals(activeUri)) saved = entry;
+            check(saved != null, "Concurrent recording was not finalized into history and transfer queue");
+            fixtures.add(saved);
+            check(!TransferEngine.eligible(saved, "", System.currentTimeMillis(), 1), "Newly finished recording ignored the delay");
+            android.media.MediaMetadataRetriever metadata = new android.media.MediaMetadataRetriever();
+            try {
+                metadata.setDataSource(context, saved.uri);
+                String duration = metadata.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+                check(duration != null && Long.parseLong(duration) > 1000, "Concurrent recording has no duration");
+                check("yes".equals(metadata.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)), "Concurrent recording lost microphone audio");
+                android.graphics.Bitmap frame = metadata.getScaledFrameAtTime(0,
+                        android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 160, 90);
+                check(frame != null, "Concurrent recording is not decodable");
+                frame.recycle();
+            } finally { metadata.release(); }
+            store.delete(saved);
+            pass("concurrent recording finalizes as a decodable MP4 with microphone audio and starts its own transfer delay");
+        } finally {
+            if (RecordingService.status().active()) {
+                runner.notificationAction("Stop"); runner.awaitState(RecordingService.State.IDLE);
+            }
+            instrumentation.runOnMainSync(main::finish);
+        }
     }
 
     private void testJob() throws Exception {

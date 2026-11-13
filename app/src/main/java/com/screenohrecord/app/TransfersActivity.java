@@ -94,7 +94,8 @@ public final class TransfersActivity extends Activity {
         delay = field("Minutes after recording completes", "60", Integer.toString(p.getInt("delay", 60)), R.id.transfer_delay);
         delay.setInputType(InputType.TYPE_CLASS_NUMBER);
         label("Save applies connection changes. Checks run about every 15 minutes and Android may defer them. "
-                + "Transfers pause during recording. Plain FTP sends credentials and videos unencrypted. "
+                + "Completed videos can move while you record. The active recording stays on the device. "
+                + "Plain FTP sends credentials and videos unencrypted. "
                 + "SMB uses SMB2 and needs a server accepting SMB2 without mandatory encryption.", 14);
         status = label(p.getString("status", "Automatic moves are off until enabled and saved."), 15);
         status.setId(R.id.transfer_status);

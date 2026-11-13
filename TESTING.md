@@ -1,3 +1,33 @@
+# ScreenOhRecord 1.3.1 verification
+
+Validated on 2026-11-13 using task-owned Android 9/API 28 and Android 16/API 36 emulators. Physical Galaxy S8 and S22 validation remains pending.
+
+- Package `com.screenohrecord.app`, version 1.3.1/build 17, minimum SDK 28, target SDK 36.
+- Exact tested APK `artifacts/ScreenOhRecord-1.3.1.apk` contains 6,564,920 bytes.
+- SHA-256 `8984e5f0294dfb84eca4565e0cae3d20466540ba6fc9687ff437024c7bfb6428`.
+- Preserved signer SHA-256 `7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8`. APK v2 verification and signed installation passed.
+- Build and lint passed with zero errors and 38 warnings in `artifacts/build-1.3.1.log`. Harness build passed in `artifacts/build-test-1.3.1.log`.
+- Both complete transfer suites passed 19 unique groups. Logs are `artifacts/instrumentation-release-1.3.1-transfer9.log` and `artifacts/instrumentation-release-1.3.1-transfer16.log`.
+- Android 9 recording regression passed 13 groups in `artifacts/instrumentation-release-1.3.1-regression9.log`.
+- Android 16 focused recording regression passed 20 groups in `artifacts/instrumentation-release-1.3.1-regression16-retry.log`, including saved resolution/frame-rate/bitrate/codec/microphone/folder preferences, low bitrates, AV1, storage, previews, floating controls and updater validation.
+- Combined passing evidence is `artifacts/instrumentation-release-1.3.1-combined.log`. Exact identity and group lists are recorded in `artifacts/verification-1.3.1.json`.
+
+## Live recording and permanent deletion
+
+On each Android version, a real MediaProjection microphone recording ran while an older eligible recording transferred through FTP, followed by another through SMB. Each move completed destination verification, finalized the remote file, removed the local copy and removed its history and transfer-queue entry. The finalized remote file was present at the expected size and its temporary upload name was absent.
+
+The tests confirmed that the live recording remained open and RECORDING and that the older-file deletion preserved its unfinished-output recovery marker. An unfinished output was deliberately added to the queue with an old timestamp to check explicit exclusion. After both moves, the new recording stopped successfully and decoded as an MP4 with microphone audio. Its completion timestamp started a fresh transfer delay.
+
+Existing transfer checks also passed disabled state, connection testing during capture consent, delay/clock behavior, folder scope, queue size beyond recent history, corrupted remote data, credential rejection, interruption recovery, destination conflicts, verified-copy reuse, document-provider sources, Wi-Fi loss/recovery and an actual background job. Permanent deletion uses the existing RecordingStore deletion path, with an additional active-output marker check before deletion. MainActivity's history refresh removes the corresponding row and evicts its thumbnail.
+
+## Environment and limits
+
+Android 9 uses the official Google APIs x86-64 revision 11 image. Its fixture connections use ADB reverse tunnels to bypass the documented Android Emulator TCP byte-loss defect. Wi-Fi checks and real background jobs remain active. Android 16 fixture connections use the emulator's Wi-Fi network. Loopback-only FTP/SMB fixtures use synthetic accounts and data. Physical phone and actual-device performance checks remain pending. [Android Emulator release notes](https://developer.android.com/studio/releases/emulator)
+
+The first Android 16 recording regression encountered an existing activity-focus assertion during the Open app startup sequence. A fresh bounded run passed without source changes or an app-data reset. Its failed log and diagnostics remain available locally. Bounded runners shut down both task emulators. Some diagnostic snapshots reached the size threshold and all collected logs were retained. Prior release verification below records the direct user-provided LAN FTP server checks.
+
+---
+
 # ScreenOhRecord 1.3.0 verification
 
 Validated on 2026-11-13 using task-owned Android 9/API 28 and Android 16/API 36 emulators. Physical Galaxy S8 and S22 testing remains pending.

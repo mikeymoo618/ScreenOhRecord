@@ -1,4 +1,4 @@
-# ScreenOhRecord 1.3.0
+# ScreenOhRecord 1.3.1
 
 An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming or screen-text analysis. Optional SMB/FTP moves transfer completed videos to your configured server over Wi-Fi. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
 
@@ -61,7 +61,7 @@ Pause/resume/stop also work through the main app and recording notification. If 
 
 Saved recordings show a small local thumbnail beside their name, duration and size. Frames are decoded in the background with a bounded memory-only cache; no preview image files are saved. Deleting a recording removes its row and thumbnail immediately and cancels pending preview work. Missing/unreadable videos use a placeholder. Existing Play/Delete controls remain.
 
-The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.0, build 16. It is refreshed from Android package information.
+The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.1, build 17. It is refreshed from Android package information.
 
 ## Local folders and privacy
 
@@ -69,7 +69,7 @@ Only Android's external-storage document provider is accepted by the folder pick
 
 Android 9 uses READ_EXTERNAL_STORAGE and WRITE_EXTERNAL_STORAGE for the default Movies folder. Both declarations have maxSdkVersion 28. Android 10 and newer use scoped MediaStore access. The updater adds INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES and RECEIVE_BOOT_COMPLETED (for the optional persisted job). The system-only job service requires BIND_JOB_SERVICE; it does not start recording at boot. App-data backup/device transfer is disabled. Other gallery, player or backup apps have their own permissions and may sync shared videos if you configure them to do so.
 
-Whole-screen video can contain private messages, notifications and sensitive data displayed during recording. Hide private notifications and avoid exposing sensitive content. The app does not send recordings, frames or screen text to GitHub or elsewhere.
+Whole-screen video can contain private messages, notifications and sensitive data displayed during recording. Hide private notifications and avoid exposing sensitive content. Completed recordings move to your configured SMB/FTP destination when automatic moves are enabled.
 
 ## Build and publish
 
@@ -90,7 +90,7 @@ See TESTING.md, DESIGN.md, RELEASE-PLAN-1.2.0.md and updates.md for evidence, de
 
 Version 1.3.0 adds optional SMB and plain FTP destinations under Settings > Automatic video moves. The feature starts disabled. Enter the server IPv4 address or hostname, port, credentials and destination folder. SMB additionally uses a share name and optional domain. For `//192.168.1.1/video files/videos`, enter server `192.168.1.1`, share `video files` and folder `videos`. FTP paths are relative to the login directory unless an absolute path is entered.
 
-Use Test connection to check login, write, checksum read-back, rename and deletion of a small test file. Enable automatic moves and save. The default delay is 60 minutes after recording completes. Android checks about every 15 minutes and may defer background work for battery management. Transfers require active Wi-Fi and pause during recording or capture consent. VPN connections are excluded. Passwords are encrypted in device-local storage using Android Keystore.
+Use Test connection to check login, write, checksum read-back, rename and deletion of a small test file. Enable automatic moves and save. The default delay is 60 minutes after recording completes. Android checks about every 15 minutes and may defer background work for battery management. Transfers require active Wi-Fi and can run during recording or capture consent. Only completed videos are eligible. VPN connections are excluded. Passwords are encrypted in device-local storage using Android Keystore.
 
 Completed recordings in the current recording folder are tracked independently of the recent list. Existing recognized recordings are imported from that directory when first used for transfers. Other apps' videos and unfinished recordings stay in place. Remote filenames retain the recording name with a unique suffix. Files are uploaded with an `.uploading` suffix, read back for SHA-256 verification, finalized and checked again before permanent local deletion. Failed attempts retain local files for the next job. A verified remote copy left by an interrupted attempt is reused. Verification adds Wi-Fi traffic because the remote file is read back.
 

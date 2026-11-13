@@ -28,8 +28,6 @@ final class TransferEngine {
     static int run(Context context, BooleanSupplier cancelled) throws IOException {
         TransferSettings.Config config = TransferSettings.load(context);
         if (!config.enabled) return 0;
-        if (RecordingService.status().active() || CaptureActivity.isRequestActive())
-            throw new IOException("Transfer paused while recording or requesting screen access");
         long deadline = android.os.SystemClock.elapsedRealtime() + 8 * 60_000L;
         String destination = RecordingOptions.get(context).getString("folder_uri", "");
         BooleanSupplier stopped = () -> cancelled.getAsBoolean()
@@ -44,6 +42,7 @@ final class TransferEngine {
         try {
             for (RecordingStore.Entry entry : store.transferEntries()) {
                 if (stopped.getAsBoolean()) throw new IOException("Transfer paused. Local recordings retained");
+                if (store.isUnfinished(entry.uri)) continue;
                 if (!eligible(entry, destination, System.currentTimeMillis(), config.delayMinutes)) continue;
                 RecordingStore.Availability availability = store.availability(entry);
                 if (availability == RecordingStore.Availability.MISSING) { store.delete(entry); continue; }
@@ -90,6 +89,7 @@ final class TransferEngine {
         try (InputStream input = source(context, entry.uri)) { current = digest(input, remote); }
         if (!local.equals(current)) throw new IOException("Local recording changed during transfer. Local file retained");
         remote.check();
+        if (store.isUnfinished(entry.uri)) throw new IOException("The active recording must stay on the device");
         try { store.delete(entry); }
         catch (RuntimeException error) { throw new IOException("Remote copy verified. Restore folder access to remove the local copy", error); }
     }

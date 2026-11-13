@@ -1107,7 +1107,7 @@ public final class PrivacyTestRunner extends Instrumentation {
         runOnMainSync(() -> check(visibleActivity(activity).findViewById(id).performClick(), "Control click failed: " + id));
     }
 
-    private void notificationAction(String title) throws Exception {
+    void notificationAction(String title) throws Exception {
         NotificationManager manager = getTargetContext().getSystemService(NotificationManager.class);
         long deadline = SystemClock.elapsedRealtime() + 5000;
         while (SystemClock.elapsedRealtime() < deadline) {
@@ -1172,7 +1172,7 @@ public final class PrivacyTestRunner extends Instrumentation {
         throw new AssertionError("Start control did not return to ready: " + diagnostic + "; lifecycle=" + lifecycleTrace);
     }
 
-    private void awaitState(RecordingService.State desired) {
+    void awaitState(RecordingService.State desired) {
         long deadline = SystemClock.elapsedRealtime() + 20_000;
         while (SystemClock.elapsedRealtime() < deadline) {
             if (RecordingService.status().state == desired) return;
@@ -1182,7 +1182,7 @@ public final class PrivacyTestRunner extends Instrumentation {
                 ": " + RecordingService.status().message);
     }
 
-    private void consent(boolean allow) {
+    void consent(boolean allow) {
         long deadline = SystemClock.elapsedRealtime() + 15_000;
         while (SystemClock.elapsedRealtime() < deadline) {
             AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
@@ -1269,7 +1269,7 @@ public final class PrivacyTestRunner extends Instrumentation {
         throw new AssertionError("Floating service visibility did not become " + wanted);
     }
 
-    private void awaitRequestFinished() {
+    void awaitRequestFinished() {
         long deadline = SystemClock.elapsedRealtime() + 8000;
         while (SystemClock.elapsedRealtime() < deadline) {
             if (!CaptureActivity.isRequestActive()) return;

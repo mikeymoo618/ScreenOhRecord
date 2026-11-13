@@ -74,7 +74,11 @@ Approved on 2026-11-13 for ScreenOhRecord 1.3.0/build 16.
 - SMB uses jcifs-ng with SMB2.02 through SMB2.1, compatible with SMB2-enabled SMB3 servers. SMB1, DFS referrals and port-139 fallback are disabled. Servers requiring SMB3 encryption are outside this implementation. FTP uses Commons Net in passive binary mode with control-peer data addresses.
 - Temporary remote names end in .uploading. Stable final names include source identity and content hash, retaining the recognizable recording filename. Verify temporary and final files through byte count and full SHA-256 read-back. Recheck local content before permanent deletion. Retrying a completed remote copy verifies and reuses it.
 - Passwords are encrypted with an Android Keystore AES-GCM key. Backup remains disabled. Connection tests create, read back, rename and delete a small temporary remote test file.
-- Disabling, configuration changes, recording, consent, Wi-Fi loss and job cancellation stop further transfer operations. Failed or partial transfers retain the local file and queue entry for the next periodic attempt.
+- Disabling, configuration changes, Wi-Fi loss and job cancellation stop further transfer operations. Recording and capture consent can run alongside completed-video transfers. Failed or partial transfers retain the local file and queue entry for the next periodic attempt.
 - Test both protocols with local test servers and Android 9/16 emulators. Include delay, disabled state, corruption, credentials, cancellation, Wi-Fi loss, remote collision and recovery checks. Run existing recording regressions and verify signing before publication.
 
 The user explicitly selected SMB and unencrypted FTP. Existing background-job scheduling is reused. Recording preferences and the signing identity remain in place.
+
+## 1.3.1 simultaneous recording and transfers
+
+Completed-video transfers continue during recording and capture consent. The active output marker excludes unfinished recordings from eligibility and is checked again before local deletion. Deleting a verified older recording updates its history and transfer queue while preserving the current recording's recovery marker. Update downloads and checks keep their recording/capture-consent exclusion.

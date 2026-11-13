@@ -379,11 +379,15 @@ final class RecordingStore {
 
     private boolean queuedOrUnfinished(JSONArray queue, Uri uri) throws JSONException {
         String value = uri.toString();
-        if (value.equals(preferences.getString("unfinished", null))) return true;
+        if (isUnfinished(uri)) return true;
         for (int i = 0; i < queue.length(); i++) {
             if (value.equals(queue.getJSONObject(i).getString("uri"))) return true;
         }
         return false;
+    }
+
+    boolean isUnfinished(Uri uri) {
+        return uri.toString().equals(preferences.getString("unfinished", null));
     }
 
     private void addDiscovered(JSONArray queue, Uri uri, String name, long bytes, long duration,

@@ -67,8 +67,6 @@ final class TransferConnection implements Closeable {
     void check() throws IOException {
         if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) throw new IOException("Transfer cancelled");
         if (!network.equals(wifi(context))) throw new IOException("Wi-Fi changed. Local recordings retained");
-        if (RecordingService.status().active() || CaptureActivity.isRequestActive())
-            throw new IOException("Transfer paused while recording or requesting screen access");
     }
 
     private void openFtp(TransferSettings.Config config, InetAddress address) throws IOException {
