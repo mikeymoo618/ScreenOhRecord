@@ -23,7 +23,7 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 import javax.net.ssl.HttpsURLConnection;
 
-/** Sole network client: fixed public GitHub release source, no access to recordings. */
+/** Updater network client. Fixed public GitHub release source, no access to recordings. */
 final class UpdateClient {
     static final String REPOSITORY = "https://github.com/mikeymoo618/ScreenOhRecord";
     static final String MANIFEST = REPOSITORY + "/releases/latest/download/update.json";

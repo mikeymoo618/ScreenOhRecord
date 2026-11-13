@@ -1,6 +1,6 @@
-# ScreenOhRecord 1.2.7
+# ScreenOhRecord 1.3.0
 
-An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming, screen-text analysis or recording uploads. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
+An independent Android screen recorder: local MP4 files, no ads, analytics, livestreaming or screen-text analysis. Optional SMB/FTP moves transfer completed videos to your configured server over Wi-Fi. AZ Recorder was a behavioral reference; its code, resources and signing identity are not reused.
 
 **Version 1.2.7 adds Android 9 support. Saving in Movies on Android 9 requests storage access. Android 9 can fit video dimensions to its encoder limits within the selected resolution cap.**
 
@@ -12,7 +12,7 @@ An independent Android screen recorder: local MP4 files, no ads, analytics, live
 
 **Version 1.2.3 shows floating controls automatically when opening or returning to the main screen, once Android's Display over other apps permission is enabled. Hide lasts until you return to the app. Recording still requires your action and Android capture consent.**
 
-**Version 1.2.2 removes confirmed missing recordings from history when opening or returning to the app. Delete also clears an already-missing recording. Temporary storage or permission failures preserve history.** Version 1.2.1 added recording thumbnails, a final installed-version footer, and Stop and Delete that keeps floating controls open. Version 1.2.0 introduced AV1 and the GitHub updater. The updater requires internet access; the earlier no-INTERNET permission guarantee no longer applies. Recording remains local. Network code is isolated to public GitHub update metadata/APK downloads and does not access recordings.
+**Version 1.2.2 removes confirmed missing recordings from history when opening or returning to the app. Delete also clears an already-missing recording. Temporary storage or permission failures preserve history.** Version 1.2.1 added recording thumbnails, a final installed-version footer, and Stop and Delete that keeps floating controls open. Version 1.2.0 introduced AV1 and the GitHub updater. The updater requires internet access; the earlier no-INTERNET permission guarantee no longer applies. Recording defaults to local storage. Network access serves public GitHub update metadata/APK downloads and user-enabled SMB/FTP video moves.
 
 ## Install and update
 
@@ -61,7 +61,7 @@ Pause/resume/stop also work through the main app and recording notification. If 
 
 Saved recordings show a small local thumbnail beside their name, duration and size. Frames are decoded in the background with a bounded memory-only cache; no preview image files are saved. Deleting a recording removes its row and thumbnail immediately and cancels pending preview work. Missing/unreadable videos use a placeholder. Existing Play/Delete controls remain.
 
-The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.2.7, build 15. It is refreshed from Android package information.
+The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.0, build 16. It is refreshed from Android package information.
 
 ## Local folders and privacy
 
@@ -85,3 +85,13 @@ Outputs artifacts/ScreenOhRecord-1.2.1.apk and its checksum. Preserve both priva
 The project AGENTS.md requires verified completed upgrades to be published to this GitHub repository. Update the version/code, updates.md, RELEASE-NOTES.md and verification report, test the signed release, then run scripts/publish-release.ps1. The publisher validates the exact project Git root, source allowlist and artifact identity; preserves remote history; pushes source and a version tag; and publishes a GitHub Release only after the APK, checksum and update.json are uploaded. Artifacts stay out of Git history. Existing release versions are never overwritten. GitHub credentials are read from the local credential manager and never embedded in the APK or saved in this repository.
 
 See TESTING.md, DESIGN.md, RELEASE-PLAN-1.2.0.md and updates.md for evidence, decisions and limitations. Historical artifacts and diagnostic logs remain local under artifacts.
+
+## Automatic video moves
+
+Version 1.3.0 adds optional SMB and plain FTP destinations under Settings > Automatic video moves. The feature starts disabled. Enter the server IPv4 address or hostname, port, credentials and destination folder. SMB additionally uses a share name and optional domain. For `//192.168.1.1/video files/videos`, enter server `192.168.1.1`, share `video files` and folder `videos`. FTP paths are relative to the login directory unless an absolute path is entered.
+
+Use Test connection to check login, write, checksum read-back, rename and deletion of a small test file. Enable automatic moves and save. The default delay is 60 minutes after recording completes. Android checks about every 15 minutes and may defer background work for battery management. Transfers require active Wi-Fi and pause during recording or capture consent. VPN connections are excluded. Passwords are encrypted in device-local storage using Android Keystore.
+
+Completed recordings in the current recording folder are tracked independently of the recent list. Existing recognized recordings are imported from that directory when first used for transfers. Other apps' videos and unfinished recordings stay in place. Remote filenames retain the recording name with a unique suffix. Files are uploaded with an `.uploading` suffix, read back for SHA-256 verification, finalized and checked again before permanent local deletion. Failed attempts retain local files for the next job. A verified remote copy left by an interrupted attempt is reused. Verification adds Wi-Fi traffic because the remote file is read back.
+
+SMB supports SMB2.02/2.1 on SMB2-enabled SMB3 servers. SMB1 and servers requiring SMB3 encryption are unsupported. Plain FTP sends credentials and videos unencrypted. The destination folder must already exist and permit upload, read, rename and delete operations.

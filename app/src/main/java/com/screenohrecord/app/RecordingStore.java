@@ -54,8 +54,14 @@ final class RecordingStore {
         final String name;
         final long bytes;
         final long duration;
+        final long completedAt;
+        final String destination;
         Entry(Uri uri, String name, long bytes, long duration) {
+            this(uri, name, bytes, duration, 0, "");
+        }
+        Entry(Uri uri, String name, long bytes, long duration, long completedAt, String destination) {
             this.uri = uri; this.name = name; this.bytes = bytes; this.duration = duration;
+            this.completedAt = completedAt; this.destination = destination;
         }
     }
 
@@ -187,6 +193,8 @@ final class RecordingStore {
             item.put("name", output.name);
             item.put("bytes", Math.max(0, bytes));
             item.put("duration", Math.max(0, duration));
+            item.put("completed_at", System.currentTimeMillis());
+            item.put("destination", destination(output.uri));
             synchronized (HISTORY_LOCK) {
                 JSONArray old = history();
                 JSONArray updated = new JSONArray();
@@ -194,6 +202,7 @@ final class RecordingStore {
                 // Display history is bounded; older video files are never deleted here.
                 for (int i = 0; i < Math.min(old.length(), 49); i++) updated.put(old.get(i));
                 if (!preferences.edit().putString("history", updated.toString())
+                        .putString("transfer_pending", appendPending(item).toString())
                         .remove("unfinished").remove("finalized_document").commit()) {
                     throw new IOException("Video saved, but its recent-recordings entry could not be stored");
                 }
@@ -248,6 +257,155 @@ final class RecordingStore {
     private JSONArray history() {
         try { return new JSONArray(preferences.getString("history", "[]")); }
         catch (JSONException error) { return new JSONArray(); }
+    }
+
+    private JSONArray pending() throws JSONException {
+        return new JSONArray(preferences.getString("transfer_pending", "[]"));
+    }
+
+    private JSONArray appendPending(JSONObject item) throws JSONException {
+        JSONArray queue = pending();
+        for (int i = 0; i < queue.length(); i++) {
+            if (item.getString("uri").equals(queue.getJSONObject(i).getString("uri"))) return queue;
+        }
+        queue.put(item);
+        return queue;
+    }
+
+    /** Durable queue is independent of the 50-row recent-recordings display limit. */
+    List<Entry> transferEntries() throws IOException {
+        synchronized (HISTORY_LOCK) {
+            try {
+                if (!preferences.getBoolean("transfer_migrated", false)) {
+                    JSONArray queue = pending();
+                    JSONArray previous = history();
+                    for (int i = 0; i < previous.length(); i++) {
+                        JSONObject item = previous.getJSONObject(i);
+                        boolean duplicate = false;
+                        for (int j = 0; j < queue.length(); j++) {
+                            if (item.getString("uri").equals(queue.getJSONObject(j).getString("uri"))) duplicate = true;
+                        }
+                        if (duplicate) continue;
+                        Uri uri = Uri.parse(item.getString("uri"));
+                        item.put("destination", destination(uri));
+                        item.put("completed_at", modifiedAt(uri));
+                        queue.put(item);
+                    }
+                    if (!preferences.edit().putString("transfer_pending", queue.toString())
+                            .putBoolean("transfer_migrated", true).commit()) throw new IOException("Cannot retain transfer queue");
+                }
+                String destination = RecordingOptions.get(context).getString("folder_uri", "");
+                if (!destination.equals(preferences.getString("transfer_scanned", null))) {
+                    JSONArray queue = pending();
+                    discoverCompleted(queue, destination);
+                    if (!preferences.edit().putString("transfer_pending", queue.toString())
+                            .putString("transfer_scanned", destination).commit()) throw new IOException("Cannot retain directory scan");
+                }
+                List<Entry> result = new ArrayList<>();
+                JSONArray queue = pending();
+                for (int i = 0; i < queue.length(); i++) {
+                    JSONObject item = queue.getJSONObject(i);
+                    result.add(new Entry(Uri.parse(item.getString("uri")), item.getString("name"),
+                            item.optLong("bytes"), item.optLong("duration"), item.getLong("completed_at"),
+                            item.getString("destination")));
+                }
+                return result;
+            } catch (JSONException | RuntimeException error) { throw new IOException("Could not read transfer queue", error); }
+        }
+    }
+
+    /** Import older recordings even when they have fallen out of the recent-recordings list. */
+    @SuppressWarnings("deprecation")
+    private void discoverCompleted(JSONArray queue, String destination) throws IOException, JSONException {
+        if (destination.isEmpty()) {
+            boolean modern = Build.VERSION.SDK_INT >= 29;
+            Uri collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+            String selection;
+            String[] arguments;
+            if (modern) {
+                collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                selection = MediaStore.Video.Media.RELATIVE_PATH + "=? AND " + MediaStore.Video.Media.OWNER_PACKAGE_NAME
+                        + "=? AND " + MediaStore.Video.Media.IS_PENDING + "=0";
+                arguments = new String[]{FOLDER, context.getPackageName()};
+            } else {
+                if (needsLegacyStoragePermission(context)) throw new IOException("Allow storage access to scan saved recordings");
+                selection = MediaStore.Video.Media.DATA + " LIKE ?";
+                arguments = new String[]{new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+                        "ScreenOhRecord").getAbsolutePath() + "/%"};
+            }
+            try (Cursor cursor = context.getContentResolver().query(collection, new String[]{MediaStore.Video.Media._ID,
+                    MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.SIZE, MediaStore.Video.Media.DURATION,
+                    MediaStore.Video.Media.DATE_MODIFIED}, selection, arguments, null)) {
+                if (cursor == null) throw new IOException("Recording directory is unavailable");
+                while (cursor.moveToNext()) {
+                    Uri uri = android.content.ContentUris.withAppendedId(collection, cursor.getLong(0));
+                    if (cursor.getLong(3) <= 0) continue;
+                    addDiscovered(queue, uri, cursor.getString(1), cursor.getLong(2), cursor.getLong(3),
+                            cursor.getLong(4) * 1000, destination);
+                }
+            }
+        } else {
+            Uri tree = Uri.parse(destination);
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+            try (Cursor cursor = context.getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_SIZE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED}, null, null, null)) {
+                if (cursor == null) throw new IOException("Recording folder is unavailable");
+                while (cursor.moveToNext()) {
+                    String name = cursor.getString(1);
+                    if (!recordingName(name)) continue;
+                    Uri uri = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0));
+                    if (queuedOrUnfinished(queue, uri)) continue;
+                    android.media.MediaMetadataRetriever metadata = new android.media.MediaMetadataRetriever();
+                    try {
+                        metadata.setDataSource(context, uri);
+                        long duration = Long.parseLong(metadata.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION));
+                        if (duration > 0) addDiscovered(queue, uri, name, cursor.getLong(2), duration, cursor.getLong(3), destination);
+                    } catch (RuntimeException ignored) { /* Incomplete or unreadable MP4 files stay local. */ }
+                    finally { try { metadata.release(); } catch (IOException ignored) { } }
+                }
+            }
+        }
+    }
+
+    private boolean recordingName(String name) {
+        return name != null && name.matches("ScreenOhRecord_[0-9]{8}_[0-9]{6}_[0-9]{3}\\.mp4");
+    }
+
+    private String destination(Uri uri) {
+        if (!SettingsActivity.LOCAL_AUTHORITY.equals(uri.getAuthority())) return "";
+        return DocumentsContract.buildTreeDocumentUri(uri.getAuthority(), DocumentsContract.getTreeDocumentId(uri)).toString();
+    }
+
+    private boolean queuedOrUnfinished(JSONArray queue, Uri uri) throws JSONException {
+        String value = uri.toString();
+        if (value.equals(preferences.getString("unfinished", null))) return true;
+        for (int i = 0; i < queue.length(); i++) {
+            if (value.equals(queue.getJSONObject(i).getString("uri"))) return true;
+        }
+        return false;
+    }
+
+    private void addDiscovered(JSONArray queue, Uri uri, String name, long bytes, long duration,
+            long modified, String destination) throws JSONException {
+        if (!recordingName(name) || bytes <= 0 || queuedOrUnfinished(queue, uri)) return;
+        JSONObject item = new JSONObject();
+        item.put("uri", uri.toString()); item.put("name", name); item.put("bytes", bytes); item.put("duration", duration);
+        item.put("destination", destination);
+        item.put("completed_at", modified > 0 && modified <= System.currentTimeMillis() ? modified : System.currentTimeMillis());
+        queue.put(item);
+    }
+
+    private long modifiedAt(Uri uri) {
+        boolean media = "media".equals(uri.getAuthority());
+        String column = media ? MediaStore.Video.Media.DATE_MODIFIED : DocumentsContract.Document.COLUMN_LAST_MODIFIED;
+        try (Cursor cursor = context.getContentResolver().query(uri, new String[]{column}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                long modified = cursor.getLong(0) * (media ? 1000 : 1);
+                if (modified > 0 && modified <= System.currentTimeMillis()) return modified;
+            }
+        } catch (RuntimeException ignored) { /* Start the delay now if older metadata is inaccessible. */ }
+        return System.currentTimeMillis();
     }
 
     List<Entry> entries() {
@@ -354,7 +512,17 @@ final class RecordingStore {
                 JSONObject item = old.optJSONObject(i);
                 if (item != null && !entry.uri.toString().equals(item.optString("uri"))) updated.put(item);
             }
-            preferences.edit().putString("history", updated.toString()).apply();
+            try {
+                JSONArray queue = pending();
+                JSONArray kept = new JSONArray();
+                for (int i = 0; i < queue.length(); i++) {
+                    JSONObject item = queue.getJSONObject(i);
+                    if (!entry.uri.toString().equals(item.getString("uri"))) kept.put(item);
+                }
+                if (!preferences.edit().putString("history", updated.toString())
+                        .putString("transfer_pending", kept.toString()).commit())
+                    throw new IllegalStateException("Could not update the recording list");
+            } catch (JSONException error) { throw new IllegalStateException("Could not update the transfer queue", error); }
         }
     }
 }

@@ -80,6 +80,11 @@ final class RecordingThumbnails implements AutoCloseable {
         for (Request request : pending.values()) request.cancel();
         pending.clear();
     }
+    void retain(java.util.Set<String> uris) {
+        for (String key : cache.snapshot().keySet()) {
+            if (!uris.contains(key)) forget(Uri.parse(key));
+        }
+    }
     void forget(Uri uri) {
         String key = uri.toString(); cache.remove(key);
         Request request = pending.remove(key);

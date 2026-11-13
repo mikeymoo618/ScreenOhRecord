@@ -109,7 +109,12 @@ public final class SettingsActivity extends Activity {
         Button updates = new Button(this); updates.setText("App updates"); updates.setId(R.id.open_updates);
         updates.setOnClickListener(v -> startActivity(new Intent(this, UpdatesActivity.class)));
         root.addView(updates);
-        label(root, "Only folders on this phone or local removable storage are accepted. Existing recordings stay in their original folder. Other apps may back up shared files if you enable cloud sync.", 14);
+        Button transfers = new Button(this);
+        transfers.setText("Automatic video moves · SMB / FTP");
+        transfers.setId(R.id.open_transfers);
+        transfers.setOnClickListener(v -> startActivity(new Intent(this, TransfersActivity.class)));
+        root.addView(transfers);
+        label(root, "Choose recording folders on this phone or local removable storage. Folder changes apply to future recordings. Automatic video moves are configured separately. Other apps may back up shared files if you enable cloud sync.", 14);
         refresh();
     }
     private interface Selection { void save(int index); }

@@ -1,0 +1,16 @@
+<resources>
+    <item name="open_transfers" type="id" />
+    <item name="transfer_enabled" type="id" />
+    <item name="transfer_protocol" type="id" />
+    <item name="transfer_host" type="id" />
+    <item name="transfer_port" type="id" />
+    <item name="transfer_share" type="id" />
+    <item name="transfer_folder" type="id" />
+    <item name="transfer_domain" type="id" />
+    <item name="transfer_username" type="id" />
+    <item name="transfer_password" type="id" />
+    <item name="transfer_delay" type="id" />
+    <item name="transfer_status" type="id" />
+    <item name="transfer_test" type="id" />
+    <item name="transfer_save" type="id" />
+</resources>

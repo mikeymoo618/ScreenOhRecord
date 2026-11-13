@@ -55,7 +55,7 @@ public final class UpdatesActivity extends Activity {
         Button done = button(root, "Done"); done.setOnClickListener(v -> finish());
         text(root, "ScreenOhRecord updates", 25);
         text(root, "Installed: " + BuildConfig.VERSION_NAME + " (build " + BuildConfig.VERSION_CODE + ")", 16);
-        text(root, "Updates come from mikeymoo618/ScreenOhRecord on GitHub. Recording stays local. No ads, analytics or uploads.", 15);
+        text(root, "Updates come from mikeymoo618/ScreenOhRecord on GitHub. Videos stay local unless you enable SMB/FTP moves. No ads or analytics.", 15);
         status = text(root, getSharedPreferences("updates", MODE_PRIVATE).getString("last_result", "No update check has been made."), 17);
         status.setId(R.id.update_status);
         details = text(root, "", 15); details.setId(R.id.update_details);

@@ -1,3 +1,39 @@
+# ScreenOhRecord 1.3.0 verification
+
+Validated on 2026-11-13 using task-owned Android 9/API 28 and Android 16/API 36 emulators. Physical Galaxy S8 and S22 testing remains pending.
+
+- Package `com.screenohrecord.app`, version 1.3.0/build 16, minimum SDK 28, target SDK 36.
+- Exact signed APK `artifacts/ScreenOhRecord-1.3.0.apk` contains 6,564,848 bytes.
+- SHA-256 `7bcfb7142423aefe39bf6d3dca3366b9682af978034a4e6a7255b5e9d6acc3ce`.
+- Preserved signing certificate SHA-256 `7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8`. APK v2 verification and signed emulator installation passed.
+- Build and lint passed with zero errors and 38 warnings in `artifacts/build-1.3.0-shipping.log`. The harness build passed in `artifacts/build-test-1.3.0-shipping.log`.
+- Android 9 transfer suite passed 16 unique groups in `artifacts/instrumentation-release-1.3.0-transfer9-tunnel.log` using the official Google APIs x86-64 revision 11 image, task AVD `ScreenOhRecord9`, port 5566.
+- Android 16 transfer suite passed 16 unique groups in `artifacts/instrumentation-release-1.3.0-transfer16-shipping.log`, task AVD `ScreenOhRecord16`, port 5564.
+- Android 9 recording regression passed 13 unique groups in `artifacts/instrumentation-release-1.3.0-regression9-shipping.log`.
+- Android 16 focused recording regression passed 20 unique groups in `artifacts/instrumentation-release-1.3.0-regression16-finalcheck.log`. Selected resolution, frame rate, bitrate, codec, microphone and destination preferences were compared before and after recording.
+- The final APK passed direct tests against the user-provided LAN FTP server on port 21, starting in the login's `/` directory. Four groups passed in `artifacts/instrumentation-release-1.3.0-lan16-shipping.log`, including a 1 MiB synthetic upload, five exact SHA-256 read-backs, rename and cleanup. All temporary remote test files were removed. Credentials were handed to the test process through a disposable file and remain absent from the release APK and source.
+- Combined successful instrumentation evidence is `artifacts/instrumentation-release-1.3.0-combined.log`. Exact identity and per-run group lists are recorded in `artifacts/verification-1.3.0.json`. Each selected bounded runner reported success and shut down its task emulator.
+
+## Transfer coverage
+
+Both Android versions exercised the disabled default, Keystore-encrypted password round-trip, persisted scheduling and disable, concurrent-worker exclusion, settings controls, completion delay, clock rollback, current-folder selection and capture-consent exclusion. The suites checked directory discovery beyond recent history, unfinished-file exclusion and a queue exceeding the 50-row recent-list limit.
+
+SMB and FTP each passed connection upload/read-back/rename/delete, rejected credentials with local-file preservation, interrupted-transfer recovery, conflicting destination preservation and reuse of an already verified remote copy. Additional checks cover deliberate same-length remote corruption, a read-only destination, a missing folder, actual document-provider source files, Wi-Fi disappearance and recovery, and a real Android JobScheduler transfer. Changing the save-folder preference between file creation and completion preserves the actual output's folder identity.
+
+The existing recording suites cover recording/playback, microphone audio, permission flows, pause, Stop and Delete, Stop and Restart, thumbnails, missing-file handling, storage recovery and updater verification. Android 16 also exercised 1080p/30fps settings, low bitrates, AV1 and Open app navigation. Encoder fitting continues to apply only to Android 9.
+
+## Network environment and validation limits
+
+Direct Android 9 emulator FTP reads reproduced intermittent single-byte losses at packet boundaries against both loopback fixtures and the supplied LAN server, using both old and current emulator runtimes. Checksums caught these failures before local deletion. The successful Android 9 transfer suite uses ADB reverse tunnels for the synthetic SMB/FTP fixture connections, bypassing the faulty virtual TCP path. The Wi-Fi requirements, connection guards, Wi-Fi-off tests and real Android background jobs remain active. Direct LAN validation covers the Android 16 emulator. Physical Android 9 LAN testing remains pending. Android documents the emulator networking defect under issue 150758736. [Emulator release notes](https://developer.android.com/studio/releases/emulator)
+
+Loopback fixtures use pyftpdlib and Impacket 0.13.1 with disposable synthetic accounts. The Windows-hosted SMB fixture was adapted for SMB2 error response encoding, optional final-frame padding and Windows open-handle rename semantics. Production SMB signature validation stays enabled. Fixtures, credentials, images, logs and test-server processes remain outside the published source and release assets.
+
+SMB supports SMB2.02/2.1 on servers accepting SMB2. SMB1 and mandatory SMB3 encryption are outside this build. IPv4 addresses and DNS hostnames are supported. The destination folder must already exist and allow upload, read, rename and test-file deletion. Android battery management and job limits may defer or interrupt transfers. Interrupted attempts retain local recordings for retry. Remote filenames include an installation/source/content suffix to avoid overwriting existing files.
+
+Some post-test diagnostic snapshots reached their monitored size threshold. All collected diagnostic logs, including failed attempts, are retained locally. Emulator results leave physical-phone, future-Android and Play Protect validation pending.
+
+---
+
 # ScreenOhRecord 1.2.7 verification
 
 Validated on 2026-11-12 using task-owned Android 9/API 28 and Android 16/API 36 emulators. Both task emulators stopped after testing.

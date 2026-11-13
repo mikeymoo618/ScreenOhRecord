@@ -1,5 +1,15 @@
 # Updates
 
+## 2026-11-13 — 1.3.0 optional SMB/FTP video moves
+
+- Adds disabled-by-default Wi-Fi-only automatic moves with protocol, destination, credentials, delay and a connection test screen.
+- Uses pinned jcifs-ng 2.1.10 for SMB2 and Commons Net 3.11.1 for plain FTP. No ads or analytics.
+- Encrypts stored passwords with Android Keystore AES-GCM and keeps backup disabled.
+- Maintains a durable completed-recording queue separately from recent history and imports older recognized recordings from the current directory.
+- Uses temporary upload names, full SHA-256 read-back verification and collision-resistant final names. Rechecks source content before permanently deleting local videos. Failures retain local files for retry.
+- Adds persisted background scheduling, Wi-Fi/cancellation checks and recording/consent exclusion. Folder tracking follows the actual output URI when recording settings change before completion. Evicts thumbnails for recordings removed by automatic moves.
+- Adds emulator integration tests for both protocols and transfer failure/recovery paths. Version 1.3.0/build 16. Exact final test evidence is recorded in TESTING.md.
+
 ## 2026-11-12 — 1.2.7 Android 9 compatibility
 
 - Lowers the minimum Android version to API 28 and keeps compile/target API 36.

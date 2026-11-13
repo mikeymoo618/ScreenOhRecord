@@ -112,10 +112,10 @@ public final class MainActivity extends Activity {
         TextView title = text("ScreenOhRecord", 32, INK);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         marginAdd(root, title, 10);
-        TextView subtitle = text("Local recording. Optional GitHub updates.", 16, MUTED);
+        TextView subtitle = text("Local recording. Optional Wi-Fi transfers.", 16, MUTED);
         marginAdd(root, subtitle, 6);
 
-        TextView privacy = text("NO ADS  ·  NO ANALYTICS  ·  NO RECORDING UPLOADS", 10, ACCENT);
+        TextView privacy = text("NO ADS  ·  NO ANALYTICS", 10, ACCENT);
         privacy.setPadding(dp(12), dp(13), dp(12), dp(13));
         privacy.setBackground(background(Color.rgb(22, 57, 49), 10));
         marginAdd(root, privacy, 22);
@@ -313,13 +313,16 @@ public final class MainActivity extends Activity {
         if (renderedHistory.equals(fingerprint.toString()) && recordings.getChildCount() > 0) return;
         renderedHistory = fingerprint.toString();
         thumbnails.cancelPending();
+        java.util.Set<String> remaining = new java.util.HashSet<>();
+        for (RecordingStore.Entry entry : entries) remaining.add(entry.uri.toString());
+        thumbnails.retain(remaining);
         for (int i = 0; i < recordings.getChildCount(); i++) {
             ImageView oldPreview = recordings.getChildAt(i).findViewById(R.id.recording_thumbnail);
             if (oldPreview != null) RecordingThumbnails.clear(oldPreview);
         }
         recordings.removeAllViews();
         if (entries.isEmpty()) {
-            recordings.addView(text("Your recordings will appear here.\nNo account or cloud upload involved.", 14, MUTED));
+            recordings.addView(text("Your recordings will appear here.", 14, MUTED));
             return;
         }
         for (RecordingStore.Entry entry : entries) {

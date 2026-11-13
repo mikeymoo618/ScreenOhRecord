@@ -34,6 +34,9 @@ public final class PrivacyTestRunner extends Instrumentation {
     private volatile Activity resumedActivity;
     private volatile SettingsActivity settingsActivity;
     private boolean settingsOnly;
+    private boolean transfersOnly;
+    private boolean lanFtpOnly;
+    private String transferHost = "10.0.2.2";
     private final java.util.concurrent.CopyOnWriteArrayList<Activity> appActivities =
             new java.util.concurrent.CopyOnWriteArrayList<>();
     private final StringBuffer lifecycleTrace = new StringBuffer();
@@ -64,6 +67,9 @@ public final class PrivacyTestRunner extends Instrumentation {
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         settingsOnly = arguments != null && "true".equals(arguments.getString("settingsOnly"));
+        transfersOnly = arguments != null && "true".equals(arguments.getString("transfersOnly"));
+        lanFtpOnly = arguments != null && "true".equals(arguments.getString("lanFtpOnly"));
+        if (arguments != null) transferHost = arguments.getString("transferHost", "10.0.2.2");
         start();
     }
 
@@ -73,6 +79,18 @@ public final class PrivacyTestRunner extends Instrumentation {
         Application application = (Application) getTargetContext().getApplicationContext();
         application.registerActivityLifecycleCallbacks(lifecycle);
         try {
+            if (lanFtpOnly) {
+                new LanFtpTest(this).run();
+                results.putString("stream", "PASS: LAN FTP test complete\n");
+                finish(Activity.RESULT_OK, results);
+                return;
+            }
+            if (transfersOnly) {
+                new TransferTestSuite(this, transferHost).run();
+                results.putString("stream", "PASS: transfer suite complete\n");
+                finish(Activity.RESULT_OK, results);
+                return;
+            }
             String packageName = getTargetContext().getPackageName();
             PackageInfo info = getTargetContext().getPackageManager().getPackageInfo(packageName,
                     PackageManager.GET_PERMISSIONS | PackageManager.GET_SERVICES | PackageManager.GET_PROVIDERS | PackageManager.GET_ACTIVITIES);
@@ -92,9 +110,10 @@ public final class PrivacyTestRunner extends Instrumentation {
             check(info.applicationInfo.targetSdkVersion == 36, "Build does not target Android 16");
             check(BuildConfig.VERSION_NAME.equals(info.versionName), "Wrong installed app version: " + info.versionName);
             check((info.applicationInfo.flags & ApplicationInfo.FLAG_ALLOW_BACKUP) == 0, "Backup allowed");
-            check(info.services.length == 3, "Unexpected service inventory");
+            check(info.services.length == 4, "Unexpected service inventory");
             for (android.content.pm.ServiceInfo service : info.services) {
-                if (service.name.endsWith("UpdateCheckJob")) check("android.permission.BIND_JOB_SERVICE".equals(service.permission), "Unprotected update job");
+                if (service.name.endsWith("UpdateCheckJob") || service.name.endsWith("TransferJob"))
+                    check("android.permission.BIND_JOB_SERVICE".equals(service.permission), "Unprotected background job");
                 else check(!service.exported, "Exported service: " + service.name);
             }
             for (android.content.pm.ActivityInfo declared : info.activities) {
@@ -1023,7 +1042,7 @@ public final class PrivacyTestRunner extends Instrumentation {
         finally { preview.recycle(); }
     }
 
-    private void clickSystemText(String wanted) {
+    void clickSystemText(String wanted) {
         enableInteractiveWindows();
         long deadline = SystemClock.elapsedRealtime() + 10_000;
         while (SystemClock.elapsedRealtime() < deadline) {

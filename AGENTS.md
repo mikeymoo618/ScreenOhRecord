@@ -4,7 +4,7 @@ Follow the parent repository instructions and communicate in English. Obtain app
 
 - Increment the app version/versionCode and update updates.md for each released code change.
 - Support Android 9/API 28 and newer. Limit encoder-dimension fitting to Android 9 and preserve stored recording preferences.
-- Keep recordings local. Network access is solely for the explicit GitHub updater; no ads, analytics, telemetry or recording uploads. Do not run update requests during a recording or capture-consent flow.
+- Keep recordings local by default. Network access serves the explicit GitHub updater and user-enabled Wi-Fi-only SMB/FTP moves of completed recordings. Verify transferred contents before permanently removing local files. No ads, analytics or telemetry. Pause transfers and updates during recording or capture consent.
 - Preserve the project-local signing identity. Never publish .local-signing, local.properties, credentials, phone recordings, Android test images, caches or analysis files.
 - Publish every completed, verified upgraded build to https://github.com/mikeymoo618/ScreenOhRecord as a versioned GitHub Release. Include the signed APK, SHA-256 checksum, update.json and release notes. Push the matching project source/version and annotated release tag; preserve existing remote history. This standing instruction authorises publishing completed upgrades without a separate publication approval.
 - Before publishing, build/lint, test relevant behavior on the task-owned Android emulator, inspect packaged permissions/signature, and record exact artifact identity and limitations. Never publish a failed or unverified build as completed.
