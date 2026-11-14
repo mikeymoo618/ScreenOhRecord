@@ -125,7 +125,7 @@ final class TransferEngine {
         if (failed > 0) {
             TransferSettings.preferences(context).edit().putBoolean("retry_needed", true).apply();
             String result = "Moved " + moved + " video(s). " + failed + " video(s) retained for retry. " + firstFailure.getMessage();
-            status(context, result);
+            issue(context, result);
             if (moved == 0) throw new IOException(result, firstFailure);
             return moved;
         }
@@ -136,6 +136,12 @@ final class TransferEngine {
     static void status(Context context, String message) {
         TransferSettings.preferences(context).edit().putString("status", message)
                 .putLong("checked_at", System.currentTimeMillis()).apply();
+    }
+
+    static void issue(Context context, String message) {
+        TransferSettings.preferences(context).edit().putString("last_issue", message)
+                .putLong("last_issue_at", System.currentTimeMillis()).apply();
+        status(context, message);
     }
 
     private static boolean recoverable(Throwable error) {

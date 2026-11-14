@@ -8,8 +8,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class TransferJob extends JobService {
+    private static final ConcurrentHashMap<Integer, AtomicBoolean> activeRuns = new ConcurrentHashMap<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ConcurrentHashMap<Integer, AtomicBoolean> runs = new ConcurrentHashMap<>();
+
+    static boolean active(int jobId) {
+        AtomicBoolean token = activeRuns.get(jobId);
+        return token != null && !token.get();
+    }
 
     @Override public boolean onStartJob(JobParameters params) {
         if (!TransferSettings.preferences(this).getBoolean("enabled", false)) return false;
@@ -20,6 +26,7 @@ public final class TransferJob extends JobService {
         }
         AtomicBoolean token = new AtomicBoolean();
         runs.put(params.getJobId(), token);
+        activeRuns.put(params.getJobId(), token);
         TransferNotifications.createChannel(this);
         if (android.os.Build.VERSION.SDK_INT >= 34 && params.isUserInitiatedJob()) {
             setNotification(params, TransferNotifications.ID,
@@ -41,11 +48,12 @@ public final class TransferJob extends JobService {
                 retry = TransferSettings.preferences(this).getBoolean("retry_needed", false);
             } catch (Exception error) {
                 retry = true;
-                TransferEngine.status(this, error.getMessage() == null
+                TransferEngine.issue(this, error.getMessage() == null
                         ? "Transfer could not finish. Check connection and folder access." : error.getMessage());
                 android.util.Log.w("ScreenOhRecord", "Automatic video transfer did not finish", error);
             } finally {
                 if (acquired) TransferEngine.end();
+                activeRuns.remove(params.getJobId(), token);
                 boolean needsRetry = retry;
                 handler.post(() -> {
                     if (runs.remove(params.getJobId(), token)) {
@@ -63,7 +71,7 @@ public final class TransferJob extends JobService {
         AtomicBoolean token = runs.get(params.getJobId());
         if (token != null) token.set(true);
         String reason = android.os.Build.VERSION.SDK_INT >= 31 ? " (reason " + params.getStopReason() + ")" : "";
-        TransferEngine.status(this, "Android paused transfers" + reason + ". Saved progress will resume when permitted.");
+        TransferEngine.issue(this, "Android paused transfers" + reason + ". Saved progress will resume when permitted.");
         if (params.getJobId() == TransferScheduler.CONTINUOUS_JOB_ID) TransferNotifications.clear(this);
         return TransferSettings.preferences(this).getBoolean("enabled", false);
     }

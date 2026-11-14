@@ -1,4 +1,11 @@
-# ScreenOhRecord 1.3.3
+# ScreenOhRecord 1.3.4
+
+- Move videos now restarts inactive delayed jobs while preserving active transfers and resumable progress.
+- Displays current Wi-Fi state and Android scheduling reasons, including retry delay, quota and background restrictions.
+- Keeps connection-test results separate from live queue status and retains the last interruption with its timestamp.
+- Supports Android 9 and newer with the existing recording controls, transfer verification and signing identity.
+
+## Previous 1.3.3 behavior retained
 
 - Processes the eligible queue continuously with a visible notification, filename, file count, transfer phase and byte progress.
 - Removes the eight-minute batch cutoff. Saving enabled settings starts the queue. Move videos now starts an existing saved queue.

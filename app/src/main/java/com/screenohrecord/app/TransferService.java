@@ -57,7 +57,7 @@ public final class TransferService extends Service {
                 retry = TransferSettings.preferences(this).getBoolean("retry_needed", false);
             } catch (Exception error) {
                 retry = true;
-                TransferEngine.status(this, "Transfer paused. " + error.getMessage());
+                TransferEngine.issue(this, "Transfer paused. " + error.getMessage());
                 android.util.Log.w("ScreenOhRecord", "Continuous transfer interrupted", error);
             } finally {
                 if (wake.isHeld()) wake.release();

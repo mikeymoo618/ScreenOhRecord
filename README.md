@@ -1,4 +1,6 @@
-# ScreenOhRecord 1.3.3
+# ScreenOhRecord 1.3.4
+
+Version 1.3.4 makes **Move videos now** restart an inactive queued transfer, including a delayed retry. Active jobs and fresh repeated requests share their existing worker. The transfer screen shows live Wi-Fi and Android scheduling reasons, keeps the connection-test result separate, and retains the last interruption with its timestamp.
 
 Version 1.3.3 runs eligible videos sequentially through the whole queue with a visible transfer notification and live filename/byte progress. Save enabled transfer settings or tap **Move videos now** in **Settings > Automatic video moves**. Android 14+ uses a user-initiated transfer job. Older Android versions use a foreground data-transfer service. The app's eight-minute batch cutoff has been removed.
 
@@ -71,7 +73,7 @@ Pause/resume/stop also work through the main app and recording notification. If 
 
 Saved recordings show a small local thumbnail beside their name, duration and size. Frames are decoded in the background with a bounded memory-only cache; no preview image files are saved. Deleting a recording removes its row and thumbnail immediately and cancels pending preview work. Missing/unreadable videos use a placeholder. Existing Play/Delete controls remain.
 
-The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.3, build 19. It is refreshed from Android package information.
+The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.4, build 20. It is refreshed from Android package information.
 
 ## Local folders and privacy
 

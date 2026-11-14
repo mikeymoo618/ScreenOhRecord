@@ -94,3 +94,9 @@ Enabled settings and Move videos now request continuous processing. API 34+ uses
 The batch has no app-defined execution deadline. Eligible files are processed sequentially, with failures retained while other files continue. FTP resumes with REST/STOR offsets and SMB uses random-access offsets. FTP commands end periodically while actively uploading. Verification reads reconnect between segments, avoiding abandoned control replies. Socket timeouts and a no-progress watchdog handle stalls.
 
 Each remote verification pass stores Bouncy Castle SHA-256 encoded state and byte offset in private preferences. The destination, stable remote filename, size and modification timestamp scope reuse. Unknown timestamps disable checkpoint reuse. Both full read-back passes and a fresh local checksum/timestamp check precede local deletion. A temporary-file checksum mismatch removes the bad temporary copy for a clean retry. An existing final-file collision remains protected.
+
+## 1.3.4 manual scheduling recovery
+
+Automatic requests reuse an existing continuous job. An explicit visible manual request can replace an inactive pending job to reset retry delay. A short dispatch guard coalesces fresh repeated taps, and active job tokens protect running transfers. Manual requests also clear the legacy retry job. Upload and checksum checkpoints remain independent of job replacement.
+
+TransferStatus reads current Wi-Fi and scheduler state separately from the persisted progress message. Android 16 provides multiple pending reasons, Android 14/15 provides one reason, and older versions show the queued retry state. Connection tests have a separate result view. Transfer exceptions and stops retain a timestamped last-interruption message.

@@ -33,12 +33,17 @@ public final class TransfersActivity extends Activity {
     private Switch enabled;
     private EditText host, port, share, folder, domain, username, password, delay;
     private TextView status, shareLabel, domainLabel;
+    private TextView connectionStatus, lastIssue;
     private Button test, save;
     private boolean busy;
     private final Runnable refreshProgress = new Runnable() {
         @Override public void run() {
-            if (!busy && status != null) status.setText(TransferSettings.preferences(TransfersActivity.this)
-                    .getString("status", "Automatic moves are off until enabled and saved."));
+            if (!busy && status != null) status.setText(TransferStatus.current(TransfersActivity.this));
+            if (lastIssue != null) {
+                String message = TransferStatus.lastIssue(TransfersActivity.this);
+                lastIssue.setText(message);
+                lastIssue.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
+            }
             handler.postDelayed(this, 1000);
         }
     };
@@ -111,10 +116,16 @@ public final class TransfersActivity extends Activity {
                 + "Completed videos can move while you record. The active recording stays on the device. "
                 + "Plain FTP sends credentials and videos unencrypted. "
                 + "SMB uses SMB2 and needs a server accepting SMB2 without mandatory encryption.", 14);
-        status = label(p.getString("status", "Automatic moves are off until enabled and saved."), 15);
+        status = label(TransferStatus.current(this), 15);
         status.setId(R.id.transfer_status);
+        lastIssue = label("", 14);
+        lastIssue.setId(R.id.transfer_last_issue);
+        lastIssue.setVisibility(View.GONE);
         test = button("Test connection", this::testConnection);
         test.setId(R.id.transfer_test);
+        connectionStatus = label("", 15);
+        connectionStatus.setId(R.id.transfer_connection_status);
+        connectionStatus.setVisibility(View.GONE);
         save = button("Save settings", this::saveSettings);
         save.setId(R.id.transfer_save);
         button("Move videos now", this::startMoves).setId(R.id.transfer_start);
@@ -208,14 +219,10 @@ public final class TransfersActivity extends Activity {
             status.setText("Enable automatic moves and save your connection settings first.");
             return;
         }
-        String message;
-        if (TransferScheduler.startContinuous(this)) message = "Video queue requested. Waiting for Wi-Fi and Android to start.";
-        else {
+        if (!TransferScheduler.startContinuous(this, true)) {
             TransferScheduler.retry(this);
-            message = "Android deferred the transfer start. An automatic retry is queued.";
         }
-        TransferEngine.status(this, message);
-        status.setText(message);
+        status.setText(TransferStatus.current(this));
     }
 
     private void testConnection() {
@@ -227,7 +234,8 @@ public final class TransfersActivity extends Activity {
         busy = true;
         test.setEnabled(false);
         save.setEnabled(false);
-        status.setText("Testing login, file upload, read-back, rename and cleanup over Wi-Fi…");
+        connectionStatus.setVisibility(View.VISIBLE);
+        connectionStatus.setText("Testing login, file upload, read-back, rename and cleanup over Wi-Fi…");
         new Thread(() -> {
             String result;
             try {
@@ -243,7 +251,7 @@ public final class TransfersActivity extends Activity {
                 busy = false;
                 test.setEnabled(true);
                 save.setEnabled(true);
-                status.setText(message);
+                connectionStatus.setText(message);
             });
         }, "ScreenOhRecord-transfer-test").start();
     }

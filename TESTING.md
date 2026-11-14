@@ -1,3 +1,31 @@
+# ScreenOhRecord 1.3.4 verification
+
+Validated on 2026-11-15 with task-owned Android 9/API 28 and Android 16/API 36 emulators.
+
+- Package com.screenohrecord.app, version 1.3.4/build 20, minimum SDK 28 and target SDK 36.
+- Exact signed APK artifacts/ScreenOhRecord-1.3.4.apk is 6591744 bytes. SHA-256 is 1d79d18c92eb5bb6914303f918c1c18ff6f46194552178af63c3cf92b8be262a.
+- Original certificate SHA-256 is 7d1a8bb17518df543a9e193289f4dc379f63748de2b6920986f4432e42c8dbc8. APK v2 signature verification passed.
+- Build/lint passed with 0 errors and 43 warnings. Final build evidence is artifacts/build-1.3.4-final.log and harness evidence is artifacts/build-test-1.3.4-recovery.log.
+- queue16 passed 28 unique status groups in artifacts/instrumentation-release-1.3.4-queue16.log.
+- queue9 passed 28 unique status groups in artifacts/instrumentation-release-1.3.4-queue9.log.
+- regression16 passed 20 unique status groups in artifacts/instrumentation-release-1.3.4-regression16.log.
+- regression9 passed 13 unique status groups in artifacts/instrumentation-release-1.3.4-regression9.log.
+- large16 passed 6 unique status groups in artifacts/instrumentation-release-1.3.4-large16.log.
+- large9 passed 6 unique status groups in artifacts/instrumentation-release-1.3.4-large9.log.
+
+Both platform suites reproduced an inactive job delayed for an hour, verified its manual replacement, preserved active work and the previous stop cause, and retained a successful connection-test result across live status refreshes.
+
+Both native 100-file queues drained sequentially with visible notifications, verified remote copies and permanent local deletion. Busy/repeated start requests and immediate disable races passed. SMB partial uploads and offset reads, broad-folder discovery, per-file failures, Wi-Fi recovery, remote corruption/conflicts and simultaneous recording tests passed.
+
+Both large suites exercised separately interrupted 64 MiB FTP uploads and SHA-256 read-back verification, native disable/re-enable during verification, temporary 15-second server pauses and a native 1 GiB transfer exceeding the old eight-minute cutoff. Final gigabyte elapsed times were 650410 ms on Android 16 and 1091779 ms on Android 9. Each completed both full remote checksum passes, final local checks and permanent local deletion. Recording regressions covered installed-version display, stored preferences, codecs/bitrates, microphone audio, storage, thumbnails, floating controls and updater validation.
+
+Combined passing runtime evidence is artifacts/instrumentation-release-1.3.4-combined.log. Exact identity and per-run group lists are in artifacts/verification-1.3.4.json. Task-owned emulators, fixture supervisor/descendants and local test listeners were stopped after testing.
+
+Physical Galaxy S8/S22 and phone-to-server validation remain pending. Android 16 large transfers used direct virtual Wi-Fi. Android 9 fixtures used ADB reverse to isolate documented emulator TCP issues, with unthrottled uploads and verification downloads limited to 2 MiB/s. App Wi-Fi guards and real Android job/service lifecycles remained active.
+
+The initial build identified an API guard requiring Android 16 for the multiple-reason scheduler API. The guard was corrected before the final build. All diagnostic logs are retained.
+
+---
 # ScreenOhRecord 1.3.3 verification
 
 Validated on 2026-11-14 with task-owned Android 9/API 28 and Android 16/API 36 emulators.

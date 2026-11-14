@@ -12,6 +12,8 @@
     <item name="transfer_password" type="id" />
     <item name="transfer_delay" type="id" />
     <item name="transfer_status" type="id" />
+    <item name="transfer_connection_status" type="id" />
+    <item name="transfer_last_issue" type="id" />
     <item name="transfer_test" type="id" />
     <item name="transfer_save" type="id" />
     <item name="transfer_start" type="id" />

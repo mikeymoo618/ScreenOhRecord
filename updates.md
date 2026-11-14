@@ -1,5 +1,14 @@
 # Updates
 
+## 2026-11-15 — 1.3.4 scheduling recovery and transfer status
+
+- Explicit manual starts replace inactive queued jobs and clear delayed retry requests. Active workers and freshly dispatched repeated requests remain coalesced.
+- Tracks active job instances independently of scheduled-job presence. Adds live scheduling reasons using Android 14/15 single-reason and Android 16 multiple-reason APIs, with an Android 9 fallback.
+- Separates connection-test results from queue refresh and retains timestamped interruption details across subsequent progress updates.
+- Adds delayed-job recovery, active-job preservation and connection-result persistence regression coverage alongside existing 100-file, gigabyte and recording tests.
+- Version 1.3.4/build 20. Final evidence is recorded in TESTING.md.
+- Final verification passed both 28-group queue suites, 20-group Android 16 and 13-group Android 9 recording regressions, and both six-group large-file suites. Native 1 GiB transfers completed in 650410 ms and 1091779 ms respectively. Original signing identity verified. Physical-phone validation remains pending.
+
 ## 2026-11-14 — 1.3.3 continuous large-file transfers
 
 - Removes the eight-minute batch deadline and adds continuous queue execution through Android 14+ user-initiated transfer jobs and a foreground data-sync service on older Android versions.

@@ -86,6 +86,7 @@ final class TransferTestSuite {
                 pass("large transfer suite complete");
                 return;
             }
+            testSchedulingRecovery();
             testQueue();
             testDiscovery();
             testBroadDiscovery();
@@ -146,6 +147,68 @@ final class TransferTestSuite {
             screen.finish();
         });
         pass("transfer defaults, encrypted password round-trip, scheduling, disable, concurrency and settings UI");
+    }
+
+    private void testSchedulingRecovery() throws Exception {
+        TransferSettings.save(context, config("ftp"));
+        JobScheduler scheduler = context.getSystemService(JobScheduler.class);
+        scheduler.cancel(TransferScheduler.JOB_ID);
+        scheduler.cancel(TransferScheduler.RETRY_JOB_ID);
+        scheduler.cancel(TransferScheduler.CONTINUOUS_JOB_ID);
+        int delayedId = android.os.Build.VERSION.SDK_INT >= 34
+                ? TransferScheduler.CONTINUOUS_JOB_ID : TransferScheduler.RETRY_JOB_ID;
+        JobInfo delayed = new JobInfo.Builder(delayedId, new android.content.ComponentName(context, TransferJob.class))
+                .setMinimumLatency(3600000).setRequiredNetwork(new android.net.NetworkRequest.Builder()
+                        .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI).build()).build();
+        check(scheduler.schedule(delayed) == JobScheduler.RESULT_SUCCESS, "Delayed-job fixture was rejected");
+        TransferEngine.issue(context, "Previous FTP interruption retained");
+        TransferEngine.end(); ownsGate = false;
+        String waiting = TransferStatus.current(context);
+        long reasonBy = SystemClock.elapsedRealtime() + 5000;
+        while (!waiting.toLowerCase(java.util.Locale.ROOT).contains("retry") && SystemClock.elapsedRealtime() < reasonBy) {
+            SystemClock.sleep(100);
+            waiting = TransferStatus.current(context);
+        }
+        acquireGate();
+        check(waiting.contains("Wi-Fi connected") && waiting.toLowerCase(java.util.Locale.ROOT).contains("retry"),
+                "Waiting state did not distinguish retry delay from Wi-Fi: " + waiting);
+        check(TransferStatus.describeReasons(new int[]{JobScheduler.PENDING_JOB_REASON_QUOTA}).contains("quota"),
+                "Quota reason was not explained");
+        Activity screen = instrumentation.startActivitySync(new Intent(context, TransfersActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        instrumentation.runOnMainSync(() -> screen.findViewById(R.id.transfer_start).performClick());
+        long startedBy = SystemClock.elapsedRealtime() + 15000;
+        while (!(android.os.Build.VERSION.SDK_INT >= 34 ? TransferJob.active(TransferScheduler.CONTINUOUS_JOB_ID)
+                : TransferService.running()) && SystemClock.elapsedRealtime() < startedBy) SystemClock.sleep(100);
+        check(android.os.Build.VERSION.SDK_INT >= 34 ? TransferJob.active(TransferScheduler.CONTINUOUS_JOB_ID)
+                : TransferService.running(), "Manual request did not start the delayed queue");
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            JobInfo replacement = scheduler.getPendingJob(TransferScheduler.CONTINUOUS_JOB_ID);
+            check(replacement != null && replacement.isUserInitiated() && replacement.getMinLatencyMillis() == 0,
+                    "Manual request retained the delayed job");
+        } else check(scheduler.getPendingJob(TransferScheduler.RETRY_JOB_ID) == null, "Legacy retry delay remained queued");
+        SystemClock.sleep(2200);
+        instrumentation.runOnMainSync(() -> screen.findViewById(R.id.transfer_start).performClick());
+        SystemClock.sleep(500);
+        check(TransferSettings.preferences(context).getString("last_issue", "").equals("Previous FTP interruption retained"),
+                "Repeated manual request interrupted active work or erased its previous cause");
+        TransferEngine.end(); ownsGate = false;
+        awaitNativeIdle();
+        instrumentation.runOnMainSync(() -> {
+            ((android.widget.Switch) screen.findViewById(R.id.transfer_enabled)).setChecked(false);
+            screen.findViewById(R.id.transfer_test).performClick();
+        });
+        long testedBy = SystemClock.elapsedRealtime() + 30000;
+        android.widget.TextView result = screen.findViewById(R.id.transfer_connection_status);
+        while (!result.getText().toString().contains("Connection test passed") && SystemClock.elapsedRealtime() < testedBy)
+            SystemClock.sleep(100);
+        check(result.getText().toString().contains("Connection test passed"), "Connection test did not finish");
+        SystemClock.sleep(2200);
+        check(result.getText().toString().contains("Connection test passed"), "Live queue refresh erased the connection result");
+        check(TransferStatus.lastIssue(context).contains("Previous FTP interruption retained"), "Connection test erased stop history");
+        instrumentation.runOnMainSync(screen::finish);
+        acquireGate();
+        pass("manual start replaces an inactive delayed job, preserves active work and stop history, and keeps connection results separate from live scheduling status");
     }
 
     private void testQueue() throws Exception {

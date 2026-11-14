@@ -12,6 +12,7 @@ final class TransferScheduler {
     static final int JOB_ID = 130;
     static final int CONTINUOUS_JOB_ID = 131;
     static final int RETRY_JOB_ID = 132;
+    private static long lastContinuousRequest;
     private TransferScheduler() { }
 
     static void schedule(Context context) {
@@ -39,9 +40,18 @@ final class TransferScheduler {
 
     /** Called from a visible user action, or opportunistically by the automatic discovery job. */
     static synchronized boolean startContinuous(Context context) {
+        return startContinuous(context, false);
+    }
+
+    static synchronized boolean startContinuous(Context context, boolean restartWaiting) {
         if (!TransferSettings.preferences(context).getBoolean("enabled", false)) return false;
         JobScheduler scheduler = context.getSystemService(JobScheduler.class);
-        if (android.os.Build.VERSION.SDK_INT >= 34 && scheduler.getPendingJob(CONTINUOUS_JOB_ID) != null) return true;
+        if (restartWaiting && context instanceof android.app.Activity) scheduler.cancel(RETRY_JOB_ID);
+        if (android.os.Build.VERSION.SDK_INT >= 34 && scheduler.getPendingJob(CONTINUOUS_JOB_ID) != null) {
+            if (!restartWaiting || !(context instanceof android.app.Activity) || TransferJob.active(CONTINUOUS_JOB_ID)) return true;
+            if (android.os.SystemClock.elapsedRealtime() - lastContinuousRequest < 2000) return true;
+            scheduler.cancel(CONTINUOUS_JOB_ID);
+        }
         boolean handingOff = TransferEngine.busy();
         if (handingOff && !(context instanceof android.app.Activity)) return true;
         try {
@@ -52,6 +62,7 @@ final class TransferScheduler {
                                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build())
                         .setBackoffCriteria(30_000, JobInfo.BACKOFF_POLICY_EXPONENTIAL).build();
                 if (scheduler.schedule(job) != JobScheduler.RESULT_SUCCESS) return false;
+                lastContinuousRequest = android.os.SystemClock.elapsedRealtime();
             } else {
                 context.startForegroundService(new android.content.Intent(context, TransferService.class));
             }
