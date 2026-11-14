@@ -15,8 +15,8 @@ android {
         applicationId 'com.screenohrecord.app'
         minSdk 28
         targetSdk 36
-versionCode 18
-versionName '1.3.2'
+        versionCode 19
+        versionName '1.3.3'
         if (project.hasProperty('appVersionCode')) versionCode project.property('appVersionCode').toInteger()
         if (project.hasProperty('appVersionName')) versionName project.property('appVersionName')
         testInstrumentationRunner 'com.screenohrecord.app.PrivacyTestRunner'
@@ -53,5 +53,6 @@ versionName '1.3.2'
 dependencies {
     implementation 'eu.agno3.jcifs:jcifs-ng:2.1.10'
     implementation 'commons-net:commons-net:3.11.1'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.76'
     implementation 'org.slf4j:slf4j-nop:1.7.36'
 }

@@ -19,6 +19,36 @@ final class TransferEngine {
 
     static boolean begin() { return BUSY.compareAndSet(false, true); }
     static void end() { BUSY.set(false); }
+    static boolean busy() { return BUSY.get(); }
+
+    interface Observer { void progress(String message, long bytes, long total); }
+
+    private static final class Progress {
+        private final Context context;
+        private final Observer observer;
+        private final int totalFiles;
+        private long lastReport;
+        private String phase = "";
+        private String name = "";
+        private int index;
+
+        Progress(Context context, Observer observer, int totalFiles) {
+            this.context = context; this.observer = observer; this.totalFiles = totalFiles;
+        }
+
+        void file(RecordingStore.Entry entry) { name = entry.name; index++; phase = ""; }
+
+        void update(String nextPhase, long bytes, long total) {
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (nextPhase.equals(phase) && now - lastReport < 1000 && bytes != total) return;
+            phase = nextPhase; lastReport = now;
+            String message = "File " + index + " of " + totalFiles + " · " + name + "\n" + phase;
+            if (total > 0) message += String.format(java.util.Locale.ROOT, " · %.1f / %.1f MB",
+                    bytes / 1048576.0, total / 1048576.0);
+            status(context, message);
+            observer.progress(message, bytes, total);
+        }
+    }
 
     static boolean eligible(RecordingStore.Entry entry, String destination, long now, int minutes) {
         return entry.completedAt > 0 && now >= entry.completedAt
@@ -26,48 +56,75 @@ final class TransferEngine {
     }
 
     static int run(Context context, BooleanSupplier cancelled) throws IOException {
+        return run(context, cancelled, (message, bytes, total) -> { });
+    }
+
+    static int run(Context context, BooleanSupplier cancelled, Observer observer) throws IOException {
         TransferSettings.Config config = TransferSettings.load(context);
         if (!config.enabled) return 0;
-        long deadline = android.os.SystemClock.elapsedRealtime() + 8 * 60_000L;
         String destination = RecordingOptions.get(context).getString("folder_uri", "");
         BooleanSupplier stopped = () -> cancelled.getAsBoolean()
-                || android.os.SystemClock.elapsedRealtime() >= deadline
                 || !TransferSettings.preferences(context).getBoolean("enabled", false)
                 || !config.revision.equals(TransferSettings.preferences(context).getString("revision", ""))
                 || !destination.equals(RecordingOptions.get(context).getString("folder_uri", ""));
         RecordingStore store = new RecordingStore(context);
         store.scanTransferFolder();
+        java.util.List<RecordingStore.Entry> files = new java.util.ArrayList<>();
+        for (RecordingStore.Entry entry : store.transferEntries()) {
+            if (!store.isUnfinished(entry.uri)
+                    && eligible(entry, destination, System.currentTimeMillis(), config.delayMinutes)) files.add(entry);
+        }
+        Progress progress = new Progress(context, observer, files.size());
+        TransferSettings.preferences(context).edit().putBoolean("retry_needed", false).apply();
         int moved = 0;
         int failed = 0;
         IOException firstFailure = null;
         // Open no network connection when there are no completed, old-enough recordings.
         TransferConnection remote = null;
         try {
-            for (RecordingStore.Entry entry : store.transferEntries()) {
+            for (RecordingStore.Entry entry : files) {
                 if (stopped.getAsBoolean()) throw new IOException("Transfer paused. Local recordings retained");
                 if (store.isUnfinished(entry.uri)) continue;
                 if (!eligible(entry, destination, System.currentTimeMillis(), config.delayMinutes)) continue;
+                progress.file(entry);
+                progress.update("Connecting", 0, entry.bytes);
                 try {
                     RecordingStore.Availability availability = store.availability(entry);
                     if (availability == RecordingStore.Availability.MISSING) { store.delete(entry); continue; }
                     if (availability != RecordingStore.Availability.PRESENT)
                         throw new IOException("Restore access to the video folder to resume transfers");
-                    if (remote == null) remote = new TransferConnection(context, config, stopped);
-                    move(context, store, entry, remote);
+                    for (int attempt = 0; ; attempt++) {
+                        try {
+                            if (remote == null) remote = new TransferConnection(context, config, stopped);
+                            move(context, store, entry, remote, progress, config);
+                            break;
+                        } catch (IOException error) {
+                            if (stopped.getAsBoolean() || !recoverable(error) || attempt >= 2) throw error;
+                            android.util.Log.w("ScreenOhRecord", "Connection interrupted; resuming current video", error);
+                            if (remote != null) { remote.close(); remote = null; }
+                            progress.update("Connection interrupted. Resuming", 0, entry.bytes);
+                            for (int pause = 0; pause < 10; pause++) {
+                                if (stopped.getAsBoolean()) throw error;
+                                android.os.SystemClock.sleep(100);
+                            }
+                        }
+                    }
                     moved++;
                     status(context, "Moved " + moved + " video(s). Local copies removed after verification.");
                 } catch (IOException | RuntimeException error) {
                     if (stopped.getAsBoolean() || TransferConnection.wifi(context) == null)
-                        throw new IOException("Transfer paused. Local videos retained for retry", error);
+                        throw new IOException("Transfer interrupted at " + entry.name + ". Saved progress will resume. "
+                                + error.getMessage(), error);
                     failed++;
-                    if (firstFailure == null) firstFailure = new IOException("A video could not be moved", error);
+                    if (firstFailure == null) firstFailure = new IOException(entry.name + ": " + error.getMessage(), error);
                     android.util.Log.w("ScreenOhRecord", "Video transfer failed; continuing the folder batch", error);
                     if (remote != null) { remote.close(); remote = null; }
                 }
             }
         } finally { if (remote != null) remote.close(); }
         if (failed > 0) {
-            String result = "Moved " + moved + " video(s). " + failed + " video(s) retained for retry. Check the destination and folder access.";
+            TransferSettings.preferences(context).edit().putBoolean("retry_needed", true).apply();
+            String result = "Moved " + moved + " video(s). " + failed + " video(s) retained for retry. " + firstFailure.getMessage();
             status(context, result);
             if (moved == 0) throw new IOException(result, firstFailure);
             return moved;
@@ -81,28 +138,38 @@ final class TransferEngine {
                 .putLong("checked_at", System.currentTimeMillis()).apply();
     }
 
+    private static boolean recoverable(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.net.SocketException || cause instanceof java.io.InterruptedIOException
+                    || cause instanceof java.io.EOFException
+                    || cause instanceof org.apache.commons.net.ftp.FTPConnectionClosedException) return true;
+        }
+        return false;
+    }
+
     private static void move(Context context, RecordingStore store, RecordingStore.Entry entry,
-            TransferConnection remote) throws IOException {
+            TransferConnection remote, Progress progress, TransferSettings.Config config) throws IOException {
+        progress.update("Checking local video", 0, entry.bytes);
         Digest local;
         try (InputStream input = source(context, entry.uri)) { local = digest(input, remote); }
         if (local.bytes <= 0) throw new IOException("Empty recording retained locally");
         String name = remoteName(context, entry, local.sha256);
         String temporary = name + ".uploading";
+        String checkpointPrefix = hex(hash().digest((config.protocol + "/" + config.host + ":" + config.port
+                + "/" + config.share + "/" + config.folder + "/" + config.username + "/" + name)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         if (!remote.exists(name)) {
-            try (InputStream input = source(context, entry.uri); OutputStream output = remote.write(temporary)) {
-                byte[] buffer = new byte[65536];
-                int read;
-                while ((read = input.read(buffer)) != -1) {
-                    remote.check();
-                    output.write(buffer, 0, read);
-                }
+            upload(context, entry, remote, local, temporary, progress);
+            try { verifyResumable(context, remote, temporary, local, checkpointPrefix + ".temporary", progress); }
+            catch (ChecksumException error) {
+                remote.remove(temporary);
+                throw error;
             }
-            remote.finishStream();
-            verify(remote, temporary, local);
             remote.rename(temporary, name);
         }
         // Also verifies a final file left by a previous run that could not remove the local copy.
-        verify(remote, name, local);
+        verifyResumable(context, remote, name, local, checkpointPrefix + ".final", progress);
+        progress.update("Rechecking local video before deletion", 0, local.bytes);
         Digest current;
         try (InputStream input = source(context, entry.uri)) { current = digest(input, remote); }
         if (!local.equals(current)) throw new IOException("Local recording changed during transfer. Local file retained");
@@ -113,6 +180,88 @@ final class TransferEngine {
         if (store.isUnfinished(entry.uri)) throw new IOException("The active recording must stay on the device");
         try { store.delete(entry); }
         catch (RuntimeException error) { throw new IOException("Remote copy verified. Restore folder access to remove the local copy", error); }
+        context.getSharedPreferences("transfer_verification", Context.MODE_PRIVATE).edit()
+                .remove(checkpointPrefix + ".temporary").remove(checkpointPrefix + ".final").apply();
+    }
+
+    private static void skip(InputStream input, long offset, TransferConnection remote) throws IOException {
+        while (offset > 0) {
+            remote.check();
+            long skipped = input.skip(offset);
+            if (skipped == 0) {
+                if (input.read() == -1) throw new IOException("Local video changed before resuming upload");
+                skipped = 1;
+            }
+            offset -= skipped;
+        }
+    }
+
+    private static void upload(Context context, RecordingStore.Entry entry, TransferConnection remote,
+            Digest local, String temporary, Progress progress) throws IOException {
+        long offset = Math.max(0, remote.size(temporary));
+        if (offset > local.bytes) { remote.remove(temporary); offset = 0; }
+        progress.update(offset > 0 ? "Resuming upload" : "Uploading", offset, local.bytes);
+        while (offset < local.bytes) {
+            long started = android.os.SystemClock.elapsedRealtime();
+            try (InputStream input = source(context, entry.uri)) {
+                skip(input, offset, remote);
+                try (OutputStream output = remote.write(temporary, offset)) {
+                    byte[] buffer = new byte[65536];
+                    while (offset < local.bytes) {
+                        remote.check();
+                        int read = input.read(buffer, 0, (int) Math.min(buffer.length, local.bytes - offset));
+                        if (read < 0) throw new IOException("Local video changed during upload");
+                        output.write(buffer, 0, read);
+                        offset += read;
+                        progress.update("Uploading", offset, local.bytes);
+                        // Finish a short FTP command regularly so its control connection stays active.
+                        if (remote.isFtp() && android.os.SystemClock.elapsedRealtime() - started >= 20_000) break;
+                    }
+                }
+            }
+            remote.finishStream();
+            long retained = remote.size(temporary);
+            if (retained != offset) throw new java.io.EOFException("Server retained " + retained + " of " + offset + " upload bytes");
+        }
+    }
+
+    private static final class ChecksumException extends IOException {
+        ChecksumException() { super("Destination checksum mismatch. Local video retained for a fresh upload"); }
+    }
+
+    private static void verifyResumable(Context context, TransferConnection remote, String name, Digest expected,
+            String key, Progress progress) throws IOException {
+        if (remote.size(name) != expected.bytes) throw new IOException("Destination size mismatch. Local file retained");
+        String fingerprint = remote.fingerprint(name);
+        TransferCheckpoint checkpoint = new TransferCheckpoint(context, key, fingerprint, expected.bytes);
+        progress.update(checkpoint.offset > 0 ? "Resuming verification" : "Verifying server copy", checkpoint.offset, expected.bytes);
+        long savedAt = checkpoint.offset;
+        while (checkpoint.offset < expected.bytes) {
+            long started = android.os.SystemClock.elapsedRealtime();
+            try (InputStream input = remote.read(name, checkpoint.offset)) {
+                byte[] buffer = new byte[65536];
+                while (checkpoint.offset < expected.bytes) {
+                    remote.check();
+                    int read = input.read(buffer, 0, (int) Math.min(buffer.length, expected.bytes - checkpoint.offset));
+                    if (read < 0) throw new java.io.EOFException("Server copy ended before its expected size");
+                    checkpoint.digest.update(buffer, 0, read);
+                    checkpoint.offset += read;
+                    if (checkpoint.offset - savedAt >= 4 * 1048576L) {
+                        checkpoint.save(); savedAt = checkpoint.offset;
+                    }
+                    progress.update("Verifying server copy", checkpoint.offset, expected.bytes);
+                    if (remote.isFtp() && android.os.SystemClock.elapsedRealtime() - started >= 20_000) break;
+                }
+            } catch (IOException error) { checkpoint.save(); throw error; }
+            if (checkpoint.offset < expected.bytes && remote.isFtp()) remote.reconnectFtp();
+            else remote.finishStream();
+            if (!fingerprint.isEmpty() && !fingerprint.equals(remote.fingerprint(name))) {
+                checkpoint.clear();
+                throw new IOException("Server copy changed during verification. Local file retained");
+            }
+            checkpoint.save(); savedAt = checkpoint.offset;
+        }
+        if (!expected.sha256.equals(checkpoint.checksum())) { checkpoint.clear(); throw new ChecksumException(); }
     }
 
     static String remoteName(Context context, RecordingStore.Entry entry, String sha256) throws IOException {

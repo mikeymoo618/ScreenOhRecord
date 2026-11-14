@@ -1,4 +1,12 @@
-# ScreenOhRecord 1.3.2
+# ScreenOhRecord 1.3.3
+
+Version 1.3.3 runs eligible videos sequentially through the whole queue with a visible transfer notification and live filename/byte progress. Save enabled transfer settings or tap **Move videos now** in **Settings > Automatic video moves**. Android 14+ uses a user-initiated transfer job. Older Android versions use a foreground data-transfer service. The app's eight-minute batch cutoff has been removed.
+
+Interrupted FTP uploads resume using REST/STOR and SMB uploads resume using file offsets. SHA-256 read-back verification stores private continuation checkpoints, reused when the remote size and modification timestamp match. Servers without a usable modification timestamp receive a fresh verification pass. Local files are permanently removed after both remote verification passes and the final local content/timestamp check.
+
+Recoverable socket failures and premature connection closure receive two brief retries within the current file. Repeated start requests share the existing continuous job. A user request can hand an ordinary scheduled transfer over to continuous execution, preserving its saved progress.
+
+Automatic discovery still checks about every 15 minutes. Android can defer background starts and interrupted work. **Move videos now** requests continuous queue execution while the app is visible. Once a run starts, successful files lead directly to the next eligible file. Wi-Fi loss, Android interruption, disabled moves or changed settings can pause it. Temporary FTP stalls receive a 60-second response/read allowance, and a 90-second inactivity watchdog closes stalled connections. Short FTP command segments keep the control connection active while transferring large files.
 
 Version 1.3.2 scans the selected folder on every transfer check. Any filename is eligible when its MIME type or extension identifies a video and its last-modified time is older than the configured delay, which defaults to 60 minutes. Android 10 and newer require a one-time folder selection in Automatic video moves to grant access to all videos in that folder. This also sets the recording destination. Files directly in that folder are scanned. Unknown timestamps start the delay at first discovery. Active recordings stay on the device.
 
@@ -63,7 +71,7 @@ Pause/resume/stop also work through the main app and recording notification. If 
 
 Saved recordings show a small local thumbnail beside their name, duration and size. Frames are decoded in the background with a bounded memory-only cache; no preview image files are saved. Deleting a recording removes its row and thumbnail immediately and cancels pending preview work. Missing/unreadable videos use a placeholder. Existing Play/Delete controls remain.
 
-The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.2, build 18. It is refreshed from Android package information.
+The last line of the page shows the installed package version and build number, currently ScreenOhRecord 1.3.3, build 19. It is refreshed from Android package information.
 
 ## Local folders and privacy
 

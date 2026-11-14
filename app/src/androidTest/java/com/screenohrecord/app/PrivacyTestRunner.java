@@ -35,6 +35,7 @@ public final class PrivacyTestRunner extends Instrumentation {
     private volatile SettingsActivity settingsActivity;
     private boolean settingsOnly;
     private boolean transfersOnly;
+    private boolean largeTransfersOnly;
     private boolean lanFtpOnly;
     private String transferHost = "10.0.2.2";
     private final java.util.concurrent.CopyOnWriteArrayList<Activity> appActivities =
@@ -68,6 +69,7 @@ public final class PrivacyTestRunner extends Instrumentation {
         super.onCreate(arguments);
         settingsOnly = arguments != null && "true".equals(arguments.getString("settingsOnly"));
         transfersOnly = arguments != null && "true".equals(arguments.getString("transfersOnly"));
+        largeTransfersOnly = arguments != null && "true".equals(arguments.getString("largeTransfersOnly"));
         lanFtpOnly = arguments != null && "true".equals(arguments.getString("lanFtpOnly"));
         if (arguments != null) transferHost = arguments.getString("transferHost", "10.0.2.2");
         start();
@@ -78,16 +80,27 @@ public final class PrivacyTestRunner extends Instrumentation {
         Activity activity = null;
         Application application = (Application) getTargetContext().getApplicationContext();
         application.registerActivityLifecycleCallbacks(lifecycle);
+        android.content.SharedPreferences transferPreferences = TransferSettings.preferences(getTargetContext());
+        boolean isolateTransfers = !transfersOnly && !largeTransfersOnly && !lanFtpOnly;
+        boolean transfersWereEnabled = transferPreferences.getBoolean("enabled", false);
         try {
+            if (isolateTransfers) {
+                transferPreferences.edit().putBoolean("enabled", false).commit();
+                TransferScheduler.schedule(getTargetContext());
+                long stoppedBy = SystemClock.elapsedRealtime() + 15000;
+                while (TransferEngine.busy() && SystemClock.elapsedRealtime() < stoppedBy) SystemClock.sleep(100);
+                check(!TransferEngine.busy(), "Previous video transfer did not stop before recording regression");
+            }
             if (lanFtpOnly) {
                 new LanFtpTest(this).run();
                 results.putString("stream", "PASS: LAN FTP test complete\n");
                 finish(Activity.RESULT_OK, results);
                 return;
             }
-            if (transfersOnly) {
-                new TransferTestSuite(this, transferHost).run();
-                results.putString("stream", "PASS: transfer suite complete\n");
+            if (transfersOnly || largeTransfersOnly) {
+                if (largeTransfersOnly) new TransferTestSuite(this, transferHost).runLarge();
+                else new TransferTestSuite(this, transferHost).run();
+                results.putString("stream", largeTransfersOnly ? "PASS: large transfer suite complete\n" : "PASS: transfer suite complete\n");
                 finish(Activity.RESULT_OK, results);
                 return;
             }
@@ -110,7 +123,7 @@ public final class PrivacyTestRunner extends Instrumentation {
             check(info.applicationInfo.targetSdkVersion == 36, "Build does not target Android 16");
             check(BuildConfig.VERSION_NAME.equals(info.versionName), "Wrong installed app version: " + info.versionName);
             check((info.applicationInfo.flags & ApplicationInfo.FLAG_ALLOW_BACKUP) == 0, "Backup allowed");
-            check(info.services.length == 4, "Unexpected service inventory");
+            check(info.services.length == 5, "Unexpected service inventory");
             for (android.content.pm.ServiceInfo service : info.services) {
                 if (service.name.endsWith("UpdateCheckJob") || service.name.endsWith("TransferJob"))
                     check("android.permission.BIND_JOB_SERVICE".equals(service.permission), "Unprotected background job");
@@ -304,6 +317,10 @@ public final class PrivacyTestRunner extends Instrumentation {
             results.putString("stream", output + "FAIL: " + android.util.Log.getStackTraceString(error) + "\n");
             finish(Activity.RESULT_CANCELED, results);
         } finally {
+            if (isolateTransfers) {
+                transferPreferences.edit().putBoolean("enabled", transfersWereEnabled).commit();
+                TransferScheduler.schedule(getTargetContext());
+            }
             application.unregisterActivityLifecycleCallbacks(lifecycle);
             if (activity != null) {
                 Activity launched = activity;
@@ -1033,7 +1050,6 @@ public final class PrivacyTestRunner extends Instrumentation {
     }
 
     private void saveAndroid9Screenshot(String name) {
-        if (android.os.Build.VERSION.SDK_INT != 28) return;
         Bitmap preview = getUiAutomation().takeScreenshot();
         if (preview == null) return;
         try (java.io.FileOutputStream file = new java.io.FileOutputStream(new java.io.File(getTargetContext().getExternalFilesDir(null), name))) {
@@ -1044,11 +1060,17 @@ public final class PrivacyTestRunner extends Instrumentation {
 
     void clickSystemText(String wanted) {
         enableInteractiveWindows();
-        long deadline = SystemClock.elapsedRealtime() + 10_000;
+        long deadline = SystemClock.elapsedRealtime() + 30_000;
         while (SystemClock.elapsedRealtime() < deadline) {
             AccessibilityNodeInfo root = getUiAutomation().getRootInActiveWindow();
             if (root != null) {
                 try {
+                    if (!root.findAccessibilityNodeInfosByText("System UI isn't responding").isEmpty()
+                            && clickSystemTextInRoot(root, "Wait")) {
+                        append("INFO: waiting for the emulator System UI to recover before continuing the picker");
+                        SystemClock.sleep(1000);
+                        continue;
+                    }
                     if (clickSystemTextInRoot(root, wanted)) { SystemClock.sleep(500); return; }
                 } finally { root.recycle(); }
             }

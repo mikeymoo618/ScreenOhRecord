@@ -86,3 +86,11 @@ Completed-video transfers continue during recording and capture consent. The act
 ## 1.3.2 broader folder monitoring
 
 Canonical file identity deduplicates document and MediaStore aliases while retaining stable remote transfer identities. Files moved outside the selected folder leave its queue. The folder picker sets the recording destination and transfer source together. File failures retain their local copy and allow other eligible files to continue. Original extensions are preserved. Local content and modification time are rechecked after full remote verification and before permanent deletion.
+
+## 1.3.3 continuous transfer lifecycle
+
+Enabled settings and Move videos now request continuous processing. API 34+ uses a user-initiated job with a required notification. Earlier Android versions use a private dataSync foreground service with a wake lock released when the worker ends. Automatic discovery retains its periodic job and attempts the continuous path when Android permits the start. A resumable background job remains available when background-start conditions prevent promotion. Android can interrupt either path, so interruption state is independent of service/process lifetime.
+
+The batch has no app-defined execution deadline. Eligible files are processed sequentially, with failures retained while other files continue. FTP resumes with REST/STOR offsets and SMB uses random-access offsets. FTP commands end periodically while actively uploading. Verification reads reconnect between segments, avoiding abandoned control replies. Socket timeouts and a no-progress watchdog handle stalls.
+
+Each remote verification pass stores Bouncy Castle SHA-256 encoded state and byte offset in private preferences. The destination, stable remote filename, size and modification timestamp scope reuse. Unknown timestamps disable checkpoint reuse. Both full read-back passes and a fresh local checksum/timestamp check precede local deletion. A temporary-file checksum mismatch removes the bad temporary copy for a clean retry. An existing final-file collision remains protected.

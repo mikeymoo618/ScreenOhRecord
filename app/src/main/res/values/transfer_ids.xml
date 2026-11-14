@@ -14,4 +14,5 @@
     <item name="transfer_status" type="id" />
     <item name="transfer_test" type="id" />
     <item name="transfer_save" type="id" />
+    <item name="transfer_start" type="id" />
 </resources>

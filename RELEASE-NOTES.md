@@ -1,4 +1,13 @@
-# ScreenOhRecord 1.3.2
+# ScreenOhRecord 1.3.3
+
+- Processes the eligible queue continuously with a visible notification, filename, file count, transfer phase and byte progress.
+- Removes the eight-minute batch cutoff. Saving enabled settings starts the queue. Move videos now starts an existing saved queue.
+- Uses user-initiated transfer jobs on Android 14+ and a foreground transfer service on older Android versions. Periodic automatic discovery remains enabled.
+- Resumes FTP and SMB uploads from remote offsets and persists SHA-256 verification progress across interruptions. Remote size/timestamp changes invalidate saved verification state.
+- Handles temporary FTP stalls with longer response/read timeouts and an inactivity watchdog. FTP transfers use short commands to keep control connections active.
+- Preserves Wi-Fi-only operation, active-recording exclusion, both complete remote checksum verification passes and final local checks before permanent deletion.
+
+## Previous 1.3.2 behavior retained
 
 - Rescans the selected video folder on every transfer check, including files absent from the app's recent list.
 - Accepts any filename and video MIME type or recognized video extension, including MP4, MKV, MOV, WebM and AVI. The configured delay uses last-modified time and defaults to 60 minutes.

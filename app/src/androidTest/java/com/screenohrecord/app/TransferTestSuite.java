@@ -42,16 +42,32 @@ final class TransferTestSuite {
     }
 
     void run() throws Exception {
+        run(false);
+    }
+
+    void runLarge() throws Exception {
+        run(true);
+    }
+
+    private void run(boolean large) throws Exception {
         SharedPreferences options = RecordingOptions.get(context);
         SharedPreferences records = context.getSharedPreferences("local_recordings", Context.MODE_PRIVATE);
         SharedPreferences transfers = TransferSettings.preferences(context);
+        SharedPreferences verification = context.getSharedPreferences("transfer_verification", Context.MODE_PRIVATE);
         Map<String, ?> oldOptions = new HashMap<>(options.getAll());
         Map<String, ?> oldRecords = new HashMap<>(records.getAll());
         Map<String, ?> oldTransfers = new HashMap<>(transfers.getAll());
+        Map<String, ?> oldVerification = new HashMap<>(verification.getAll());
         try {
+            transfers.edit().putBoolean("enabled", false).commit();
+            instrumentation.runOnMainSync(() -> TransferScheduler.schedule(context));
+            long stoppedBy = SystemClock.elapsedRealtime() + 15000;
+            while (TransferEngine.busy() && SystemClock.elapsedRealtime() < stoppedBy) SystemClock.sleep(100);
+            check(!TransferEngine.busy(), "Previous transfer worker did not stop for isolated test setup");
             options.edit().remove("folder_uri").remove("folder_label").commit();
             records.edit().clear().putString("transfer_scanned", "").commit();
             transfers.edit().clear().commit();
+            verification.edit().clear().commit();
             check(!transfers.getBoolean("enabled", false), "Transfers enabled by default");
             shell("svc wifi enable");
             long wifiDeadline = SystemClock.elapsedRealtime() + 45000;
@@ -62,6 +78,14 @@ final class TransferTestSuite {
             chooseTestFolder();
             testSettings();
             acquireGate();
+            if (large) {
+                testLargeResume();
+                testNativeInterruption();
+                testServerPause();
+                testBeyondEightMinutes();
+                pass("large transfer suite complete");
+                return;
+            }
             testQueue();
             testDiscovery();
             testBroadDiscovery();
@@ -70,10 +94,14 @@ final class TransferTestSuite {
             testFailedFileContinuation();
             testProtocol("ftp");
             testProtocol("smb");
+            testSmbResume();
             testCorruptionAndReadOnly();
             testFolder();
             testWifi();
             testConcurrentRecording();
+            testHundredFiles();
+            testBusyStart();
+            testImmediateDisable();
             testJob();
             pass("transfer suite complete");
         } finally {
@@ -85,6 +113,7 @@ final class TransferTestSuite {
             restore(options, oldOptions);
             restore(records, oldRecords);
             restore(transfers, oldTransfers);
+            restore(verification, oldVerification);
             TransferScheduler.schedule(context);
         }
     }
@@ -228,6 +257,8 @@ final class TransferTestSuite {
 
     private void chooseTestFolder(String name) throws Exception {
         shell("mkdir -p /sdcard/Movies/" + name);
+        check(shellOutput("test -d /sdcard/Movies/" + name + " && echo folder-ready").contains("folder-ready"),
+                "Test directory was not created");
         Activity settings = instrumentation.startActivitySync(new Intent(context, SettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         instrumentation.runOnMainSync(() -> {
             Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
@@ -561,6 +592,262 @@ final class TransferTestSuite {
         }
     }
 
+    private void testSmbResume() throws Exception {
+        RecordingStore.Entry video = largeFixture(8 * 1048576L);
+        TransferSettings.Config config = config("smb");
+        TransferSettings.save(context, config);
+        MessageDigest checksum = MessageDigest.getInstance("SHA-256");
+        for (int i = 0; i < 32; i++) checksum.update(CONTENT);
+        StringBuilder hex = new StringBuilder();
+        for (byte value : checksum.digest()) hex.append(String.format(java.util.Locale.ROOT, "%02x", value & 255));
+        String temporary = TransferEngine.remoteName(context, video, hex.toString()) + ".uploading";
+        try (TransferConnection remote = new TransferConnection(context, config, () -> false)) {
+            try (OutputStream output = remote.write(temporary)) {
+                for (int i = 0; i < 4; i++) output.write(CONTENT);
+            }
+            remote.finishStream();
+            check(remote.size(temporary) == 1048576, "SMB partial upload fixture has wrong size");
+            try (java.io.InputStream input = remote.read(temporary, 1048576 - 1)) {
+                check(input.read() == (CONTENT[CONTENT.length - 1] & 255) && input.read() == -1,
+                        "SMB offset read did not seek correctly");
+            }
+        }
+        java.util.concurrent.atomic.AtomicBoolean resumed = new java.util.concurrent.atomic.AtomicBoolean();
+        check(TransferEngine.run(context, () -> false, (message, bytes, total) -> {
+            if (message.contains("Resuming upload") && bytes == 1048576) resumed.set(true);
+        }) == 1 && !present(video), "Partial SMB upload did not complete");
+        check(resumed.get(), "SMB upload restarted at zero");
+        pass("SMB offset reads and partial upload continuation preserve verified content and permanent local deletion");
+    }
+
+    private void testHundredFiles() throws Exception {
+        List<RecordingStore.Entry> batch = new ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            RecordingStore.Entry entry = fixture(CONTENT);
+            age(entry); batch.add(entry);
+        }
+        TransferSettings.save(context, config("ftp"));
+        Activity screen = instrumentation.startActivitySync(new Intent(context, TransfersActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        TransferEngine.end(); ownsGate = false;
+        instrumentation.runOnMainSync(() -> screen.findViewById(R.id.transfer_start).performClick());
+        long deadline = SystemClock.elapsedRealtime() + 20 * 60000L;
+        boolean notificationSeen = false;
+        boolean continuousModeSeen = false;
+        while (SystemClock.elapsedRealtime() < deadline && batch.stream().anyMatch(this::present)) {
+            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                JobInfo job = context.getSystemService(JobScheduler.class).getPendingJob(TransferScheduler.CONTINUOUS_JOB_ID);
+                if (job != null && job.isUserInitiated()) continuousModeSeen = true;
+            } else if (TransferService.running()) continuousModeSeen = true;
+            android.service.notification.StatusBarNotification[] notifications =
+                    context.getSystemService(android.app.NotificationManager.class).getActiveNotifications();
+            for (android.service.notification.StatusBarNotification notification : notifications)
+                if (notification.getId() == TransferNotifications.ID) notificationSeen = true;
+            SystemClock.sleep(200);
+        }
+        check(batch.stream().noneMatch(this::present), "Continuous queue stopped before moving all 100 files");
+        check(notificationSeen, "Continuous queue lacked its user-visible notification");
+        check(continuousModeSeen, "Queue did not use Android's long-running transfer mechanism");
+        awaitNativeIdle();
+        acquireGate();
+        instrumentation.runOnMainSync(screen::finish);
+        check(store.transferEntries().isEmpty(), "100-file queue retained completed entries");
+        pass("100-file queue drains sequentially in one continuous "
+                + (android.os.Build.VERSION.SDK_INT >= 34 ? "user-initiated job" : "foreground service")
+                + " with a visible notification, verified copies and permanent local deletion");
+    }
+
+    private void testImmediateDisable() throws Exception {
+        TransferEngine.end(); ownsGate = false;
+        Activity screen = instrumentation.startActivitySync(new Intent(context, TransfersActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        for (int attempt = 0; attempt < 3; attempt++) {
+            TransferSettings.save(context, config("ftp"));
+            instrumentation.runOnMainSync(() -> {
+                android.widget.Switch toggle = screen.findViewById(R.id.transfer_enabled);
+                toggle.setChecked(true);
+                screen.findViewById(R.id.transfer_start).performClick();
+                toggle.setChecked(false);
+            });
+            SystemClock.sleep(7000);
+            check(!TransferEngine.busy(), "Disabled transfer kept running");
+            for (android.service.notification.StatusBarNotification notification : context
+                    .getSystemService(android.app.NotificationManager.class).getActiveNotifications())
+                check(notification.getId() != TransferNotifications.ID, "Disabled transfer notification retained");
+        }
+        instrumentation.runOnMainSync(screen::finish);
+        acquireGate();
+        pass("immediate disable after starting continuous moves is safe across three start/cancel races");
+    }
+
+    private void awaitNativeIdle() throws Exception {
+        JobScheduler scheduler = context.getSystemService(JobScheduler.class);
+        scheduler.cancel(TransferScheduler.JOB_ID);
+        scheduler.cancel(TransferScheduler.RETRY_JOB_ID);
+        long deadline = SystemClock.elapsedRealtime() + 15000;
+        while ((TransferEngine.busy() || TransferService.running()
+                || scheduler.getPendingJob(TransferScheduler.CONTINUOUS_JOB_ID) != null)
+                && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100);
+        check(!TransferEngine.busy() && !TransferService.running()
+                && scheduler.getPendingJob(TransferScheduler.CONTINUOUS_JOB_ID) == null,
+                "Native transfer did not finish its lifecycle after draining the queue");
+    }
+
+    private void testBusyStart() throws Exception {
+        RecordingStore.Entry video = largeFixture(8 * 1048576L);
+        TransferSettings.save(context, config("ftp"));
+        Activity screen = instrumentation.startActivitySync(new Intent(context, TransfersActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        instrumentation.runOnMainSync(() -> {
+            screen.findViewById(R.id.transfer_start).performClick();
+            screen.findViewById(R.id.transfer_start).performClick();
+        });
+        SystemClock.sleep(500);
+        check(present(video), "Waiting continuous worker bypassed the existing operation gate");
+        TransferEngine.end(); ownsGate = false;
+        long deadline = SystemClock.elapsedRealtime() + 90000;
+        while (present(video) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(200);
+        check(!present(video), "Busy continuous-start request was lost");
+        awaitNativeIdle();
+        acquireGate();
+        instrumentation.runOnMainSync(screen::finish);
+        pass("repeated Move videos now requests wait for an existing operation and drain the saved queue without replacing active work");
+    }
+
+    private RecordingStore.Entry largeFixture(long bytes) throws Exception {
+        RecordingStore.Output output = store.create();
+        try (OutputStream stream = new ParcelFileDescriptor.AutoCloseOutputStream(output.descriptor)) {
+            for (long written = 0; written < bytes; written += CONTENT.length)
+                stream.write(CONTENT, 0, (int) Math.min(CONTENT.length, bytes - written));
+        }
+        store.complete(output, bytes, 0);
+        for (RecordingStore.Entry entry : store.transferEntries()) {
+            if (entry.uri.equals(output.uri)) { fixtures.add(entry); age(entry); return entry; }
+        }
+        throw new AssertionError("Large fixture missing");
+    }
+
+    private void testLargeResume() throws Exception {
+        RecordingStore.Entry video = largeFixture(64 * 1048576L);
+        String folder = android.os.Build.VERSION.SDK_INT == 28 ? "slow9" : "slow";
+        TransferSettings.save(context, config("ftp", true, folder, "screenohrecord-test", PASSWORD, 1));
+        java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicBoolean uploading = new java.util.concurrent.atomic.AtomicBoolean();
+        AtomicInteger uploadChecks = new AtomicInteger();
+        try {
+            TransferEngine.run(context, () -> stop.get() || (android.os.Build.VERSION.SDK_INT == 28
+                    && uploading.get() && uploadChecks.incrementAndGet() >= 128), (message, bytes, total) -> {
+                if (message.contains("\nUploading")) {
+                    uploading.set(true);
+                    if (android.os.Build.VERSION.SDK_INT != 28 && bytes >= 8 * 1048576L) stop.set(true);
+                }
+            });
+            throw new AssertionError("Upload interruption was not exercised");
+        } catch (IOException expected) {
+            check(stop.get() || uploadChecks.get() >= 128, "Upload failed before the injected interruption: " + expected);
+            check(present(video), "Interrupted upload removed local video");
+        }
+        java.util.concurrent.atomic.AtomicBoolean uploadResumed = new java.util.concurrent.atomic.AtomicBoolean();
+        stop.set(false);
+        try {
+            TransferEngine.run(context, stop::get, (message, bytes, total) -> {
+                if (message.contains("Resuming upload") && bytes > 0) uploadResumed.set(true);
+                if (message.contains("\nVerifying server copy") && bytes >= 8 * 1048576L) stop.set(true);
+            });
+            throw new AssertionError("Verification interruption was not exercised");
+        } catch (IOException expected) {
+            check(stop.get(), "Upload failed before the injected verification interruption: " + expected);
+            check(present(video), "Interrupted verification removed local video");
+        }
+        check(uploadResumed.get(), "Partial FTP upload restarted at zero");
+        java.util.concurrent.atomic.AtomicBoolean verificationResumed = new java.util.concurrent.atomic.AtomicBoolean();
+        check(TransferEngine.run(context, () -> false, (message, bytes, total) -> {
+            if (message.contains("Resuming verification") && bytes > 0) verificationResumed.set(true);
+        }) == 1 && !present(video), "Interrupted large video did not complete safely");
+        check(verificationResumed.get(), "SHA-256 verification restarted at zero");
+        check(context.getSharedPreferences("transfer_verification", Context.MODE_PRIVATE).getAll().isEmpty(),
+                "Completed verification checkpoint retained");
+        pass("64 MiB throttled FTP upload and SHA-256 verification resume from durable offsets after separate interruptions");
+    }
+
+    private void testNativeInterruption() throws Exception {
+        RecordingStore.Entry video = largeFixture(64 * 1048576L);
+        String folder = android.os.Build.VERSION.SDK_INT == 28 ? "slow9" : "slow";
+        TransferSettings.Config config = config("ftp", true, folder, "screenohrecord-test", PASSWORD, 1);
+        TransferSettings.save(context, config);
+        Activity screen = instrumentation.startActivitySync(new Intent(context, TransfersActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        TransferEngine.end(); ownsGate = false;
+        instrumentation.runOnMainSync(() -> screen.findViewById(R.id.transfer_start).performClick());
+        long stopBy = SystemClock.elapsedRealtime() + 90000;
+        boolean verifying = false;
+        while (SystemClock.elapsedRealtime() < stopBy && present(video)) {
+            if (TransferSettings.preferences(context).getString("status", "").contains("Verifying server copy")) {
+                verifying = true; break;
+            }
+            SystemClock.sleep(100);
+        }
+        check(verifying, "Native transfer did not reach verification before interruption");
+        instrumentation.runOnMainSync(() -> ((android.widget.Switch) screen.findViewById(R.id.transfer_enabled)).setChecked(false));
+        long stoppedBy = SystemClock.elapsedRealtime() + 15000;
+        while (TransferEngine.busy() && SystemClock.elapsedRealtime() < stoppedBy) SystemClock.sleep(100);
+        check(!TransferEngine.busy() && present(video), "Disabled native transfer did not stop safely");
+        SystemClock.sleep(1000);
+        TransferSettings.save(context, config);
+        instrumentation.runOnMainSync(() -> {
+            ((android.widget.Switch) screen.findViewById(R.id.transfer_enabled)).setChecked(true);
+            screen.findViewById(R.id.transfer_start).performClick();
+        });
+        long completeBy = SystemClock.elapsedRealtime() + 180000;
+        while (present(video) && SystemClock.elapsedRealtime() < completeBy) SystemClock.sleep(200);
+        check(!present(video), "Native queue did not recover after disable/re-enable");
+        awaitNativeIdle();
+        acquireGate();
+        instrumentation.runOnMainSync(screen::finish);
+        pass("native continuous transfer stops safely during verification and completes after re-enabling saved moves");
+    }
+
+    private void testBeyondEightMinutes() throws Exception {
+        RecordingStore.Entry video = largeFixture(1024 * 1048576L);
+        String folder = android.os.Build.VERSION.SDK_INT == 28 ? "slow9" : "slow";
+        TransferSettings.save(context, config("ftp", true, folder, "screenohrecord-test", PASSWORD, 1));
+        Activity screen = instrumentation.startActivitySync(new Intent(context, TransfersActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        TransferEngine.end(); ownsGate = false;
+        long started = SystemClock.elapsedRealtime();
+        instrumentation.runOnMainSync(() -> screen.findViewById(R.id.transfer_start).performClick());
+        boolean visibleProgress = false;
+        long nextReport = started;
+        while (present(video) && SystemClock.elapsedRealtime() - started < 25 * 60000L) {
+            String status = TransferSettings.preferences(context).getString("status", "");
+            if (status.contains(video.name) && status.contains("MB")) visibleProgress = true;
+            if (SystemClock.elapsedRealtime() >= nextReport) {
+                Bundle report = new Bundle(); report.putString("stream", "INFO: gigabyte transfer " + status + "\n");
+                instrumentation.sendStatus(0, report); nextReport = SystemClock.elapsedRealtime() + 30000;
+            }
+            SystemClock.sleep(500);
+        }
+        check(!present(video), "Native throttled gigabyte queue did not complete: "
+                + TransferSettings.preferences(context).getString("status", ""));
+        long elapsed = SystemClock.elapsedRealtime() - started;
+        check(elapsed > 8 * 60000L, "Fixture did not exercise a transfer beyond the old eight-minute cutoff: " + elapsed);
+        check(visibleProgress, "Large transfer did not publish byte progress");
+        awaitNativeIdle();
+        acquireGate();
+        instrumentation.runOnMainSync(screen::finish);
+        pass("native 1 GiB throttled FTP video completes beyond eight minutes with two full SHA-256 remote read-backs, byte progress and permanent local deletion; elapsed_ms=" + elapsed);
+    }
+
+    private void testServerPause() throws Exception {
+        RecordingStore.Entry video = fixture(CONTENT);
+        age(video);
+        TransferSettings.save(context, config("ftp", true, "pause", "screenohrecord-test", PASSWORD, 1));
+        long started = SystemClock.elapsedRealtime();
+        check(TransferEngine.run(context, () -> false) == 1 && !present(video), "15-second FTP pauses interrupted a healthy transfer");
+        check(SystemClock.elapsedRealtime() - started >= 30000, "Server pause fixture did not delay both verification reads");
+        pass("temporary 15-second FTP server pauses recover through both verification reads without premature timeout");
+    }
+
     private void testJob() throws Exception {
         RecordingStore.Entry video = fixture(CONTENT);
         age(video);
@@ -570,6 +857,7 @@ final class TransferTestSuite {
         long deadline = SystemClock.elapsedRealtime() + 30000;
         while (present(video) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(200);
         check(!present(video), "Scheduled background job did not move recording");
+        awaitNativeIdle();
         acquireGate();
         pass("actual Android background job transfers an eligible video over Wi-Fi");
     }

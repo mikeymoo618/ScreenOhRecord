@@ -19,7 +19,7 @@ import jcifs.config.PropertyConfiguration;
 import jcifs.context.BaseContext;
 import jcifs.smb.NtlmPasswordAuthenticator;
 import jcifs.smb.SmbFile;
-import jcifs.smb.SmbFileOutputStream;
+import jcifs.smb.SmbRandomAccessFile;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPFile;
@@ -33,6 +33,13 @@ final class TransferConnection implements Closeable {
     private FTPClient ftp;
     private CIFSContext smbContext;
     private SmbFile directory;
+    private final TransferSettings.Config config;
+    private InetAddress address;
+    private volatile Closeable activeStream;
+    private volatile long lastActivity = android.os.SystemClock.elapsedRealtime();
+    private volatile String stopReason;
+    private final java.util.concurrent.ScheduledExecutorService watchdog =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
     static Network wifi(Context context) {
         ConnectivityManager manager = context.getSystemService(ConnectivityManager.class);
@@ -45,12 +52,12 @@ final class TransferConnection implements Closeable {
 
     TransferConnection(Context context, TransferSettings.Config config, BooleanSupplier cancelled) throws IOException {
         this.context = context.getApplicationContext();
+        this.config = config;
         this.cancelled = cancelled;
         network = wifi(context);
         if (network == null) throw new IOException("Connect to Wi-Fi to transfer recordings");
         try {
             check();
-            InetAddress address = null;
             for (InetAddress candidate : network.getAllByName(config.host)) {
                 if (candidate instanceof Inet4Address) { address = candidate; break; }
             }
@@ -58,6 +65,7 @@ final class TransferConnection implements Closeable {
             if ("ftp".equals(config.protocol)) openFtp(config, address);
             else openSmb(config, address);
             check();
+            watchdog.scheduleWithFixedDelay(this::checkStall, 1, 1, java.util.concurrent.TimeUnit.SECONDS);
         } catch (IOException | RuntimeException error) {
             close();
             throw error;
@@ -65,8 +73,31 @@ final class TransferConnection implements Closeable {
     }
 
     void check() throws IOException {
+        if (stopReason != null) throw new IOException(stopReason);
         if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) throw new IOException("Transfer cancelled");
         if (!network.equals(wifi(context))) throw new IOException("Wi-Fi changed. Local recordings retained");
+        lastActivity = android.os.SystemClock.elapsedRealtime();
+    }
+
+    private void checkStall() {
+        if (cancelled.getAsBoolean()) stopReason = "Transfer interrupted. Saved progress will resume";
+        else if (!network.equals(wifi(context))) stopReason = "Wi-Fi changed. Saved progress will resume";
+        else if (android.os.SystemClock.elapsedRealtime() - lastActivity > 90_000)
+            stopReason = "Connection stalled for 90 seconds. Saved progress will resume";
+        if (stopReason == null) return;
+        Closeable stream = activeStream;
+        if (stream != null) try { stream.close(); } catch (IOException ignored) { }
+        if (ftp != null) try { ftp.disconnect(); } catch (IOException ignored) { }
+    }
+
+    boolean isFtp() { return ftp != null; }
+
+    /** A fresh control connection also discards replies from an intentionally shortened RETR. */
+    void reconnectFtp() throws IOException {
+        check();
+        activeStream = null;
+        ftp.disconnect();
+        openFtp(config, address);
     }
 
     private void openFtp(TransferSettings.Config config, InetAddress address) throws IOException {
@@ -74,10 +105,10 @@ final class TransferConnection implements Closeable {
         ftp.setSocketFactory(network.getSocketFactory());
         ftp.setControlEncoding("UTF-8");
         ftp.setConnectTimeout(10000);
-        ftp.setDefaultTimeout(10000);
-        ftp.setDataTimeout(java.time.Duration.ofSeconds(10));
+        ftp.setDefaultTimeout(60000);
+        ftp.setDataTimeout(java.time.Duration.ofSeconds(60));
         ftp.connect(address, config.port);
-        ftp.setSoTimeout(10000);
+        ftp.setSoTimeout(60000);
         if (!FTPReply.isPositiveCompletion(ftp.getReplyCode()) || !ftp.login(config.username, config.password))
             throw new IOException("FTP login failed. Check the server and credentials");
         ftp.enterLocalPassiveMode();
@@ -105,8 +136,8 @@ final class TransferConnection implements Closeable {
         properties.setProperty("jcifs.smb.client.port139.enabled", "false");
         properties.setProperty("jcifs.resolveOrder", "DNS");
         properties.setProperty("jcifs.smb.client.connTimeout", "10000");
-        properties.setProperty("jcifs.smb.client.soTimeout", "10000");
-        properties.setProperty("jcifs.smb.client.responseTimeout", "10000");
+        properties.setProperty("jcifs.smb.client.soTimeout", "60000");
+        properties.setProperty("jcifs.smb.client.responseTimeout", "60000");
         properties.setProperty("jcifs.smb.client.attrExpirationPeriod", "0");
         BaseContext base = new BaseContext(new PropertyConfiguration(properties));
         smbContext = config.username.isEmpty() ? base.withAnonymousCredentials()
@@ -139,6 +170,19 @@ final class TransferConnection implements Closeable {
         try (SmbFile file = smb(name)) { return file.exists() ? file.length() : -1; }
     }
 
+    String fingerprint(String name) throws IOException {
+        check();
+        if (ftp != null) {
+            FTPFile file = file(name);
+            if (file == null || file.getTimestamp() == null) return "";
+            return file.getSize() + "/" + file.getTimestamp().getTimeInMillis();
+        }
+        try (SmbFile file = smb(name)) {
+            long modified = file.lastModified();
+            return modified > 0 ? file.length() + "/" + modified : "";
+        }
+    }
+
     private FTPFile file(String name) throws IOException {
         FTPFile file = ftp.mlistFile(name);
         if (file != null) return file;
@@ -149,45 +193,78 @@ final class TransferConnection implements Closeable {
     }
 
     OutputStream write(String name) throws IOException {
+        return write(name, 0);
+    }
+
+    OutputStream write(String name, long offset) throws IOException {
         check();
         if (ftp != null) {
-            OutputStream result = ftp.storeFileStream(name);
+            ftp.setRestartOffset(offset);
+            OutputStream result;
+            try { result = ftp.storeFileStream(name); }
+            finally { ftp.setRestartOffset(0); }
             if (result == null) throw new IOException("Cannot create destination file");
+            activeStream = result;
             return result;
         }
         SmbFile file = smb(name);
         try {
-            return new java.io.FilterOutputStream(new SmbFileOutputStream(file, false)) {
+            SmbRandomAccessFile random = new SmbRandomAccessFile(file, "rw");
+            try {
+                if (offset == 0) random.setLength(0);
+                random.seek(offset);
+            } catch (IOException | RuntimeException error) { random.close(); throw error; }
+            OutputStream result = new OutputStream() {
+                @Override public void write(int value) throws IOException { random.write(value); }
                 @Override public void write(byte[] bytes, int offset, int length) throws IOException {
-                    out.write(bytes, offset, length);
+                    random.write(bytes, offset, length);
                 }
                 @Override public void close() throws IOException {
-                    try { super.close(); } finally { file.close(); }
+                    try { random.close(); } finally { file.close(); }
                 }
             };
+            activeStream = result;
+            return result;
         } catch (IOException | RuntimeException error) { file.close(); throw error; }
     }
 
     InputStream read(String name) throws IOException {
+        return read(name, 0);
+    }
+
+    InputStream read(String name, long offset) throws IOException {
         check();
         if (ftp != null) {
-            InputStream result = ftp.retrieveFileStream(name);
+            ftp.setRestartOffset(offset);
+            InputStream result;
+            try { result = ftp.retrieveFileStream(name); }
+            finally { ftp.setRestartOffset(0); }
             if (result == null) throw new IOException("Cannot read back destination file");
+            activeStream = result;
             return result;
         }
         SmbFile file = smb(name);
         try {
-            return new java.io.FilterInputStream(file.getInputStream()) {
+            SmbRandomAccessFile random = new SmbRandomAccessFile(file, "r");
+            random.seek(offset);
+            InputStream result = new InputStream() {
+                @Override public int read() throws IOException { return random.read(); }
+                @Override public int read(byte[] bytes, int offset, int length) throws IOException {
+                    return random.read(bytes, offset, length);
+                }
                 @Override public void close() throws IOException {
-                    try { super.close(); } finally { file.close(); }
+                    try { random.close(); } finally { file.close(); }
                 }
             };
+            activeStream = result;
+            return result;
         } catch (IOException | RuntimeException error) { file.close(); throw error; }
     }
 
     void finishStream() throws IOException {
         check();
         if (ftp != null && !ftp.completePendingCommand()) throw new IOException("FTP transfer did not complete");
+        activeStream = null;
     }
 
     void rename(String from, String to) throws IOException {
@@ -210,6 +287,10 @@ final class TransferConnection implements Closeable {
     }
 
     @Override public void close() {
+        watchdog.shutdownNow();
+        Closeable stream = activeStream;
+        activeStream = null;
+        if (stream != null) try { stream.close(); } catch (IOException ignored) { }
         if (ftp != null && ftp.isConnected()) {
             try { ftp.disconnect(); } catch (IOException ignored) { }
         }

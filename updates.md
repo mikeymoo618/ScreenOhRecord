@@ -1,5 +1,17 @@
 # Updates
 
+## 2026-11-14 — 1.3.3 continuous large-file transfers
+
+- Removes the eight-minute batch deadline and adds continuous queue execution through Android 14+ user-initiated transfer jobs and a foreground data-sync service on older Android versions.
+- Starts the queue when enabled settings are saved and adds Move videos now. Shows live filename, queue position, phase and byte progress in the app and transfer notification.
+- Resumes FTP REST/STOR and SMB offset uploads. Persists encoded Bouncy Castle SHA-256 continuation state privately for both read-back passes, keyed by destination and file identity and invalidated by remote size/timestamp changes.
+- Reuses the existing Bouncy Castle 1.76 dependency explicitly for its encoded SHA-256 state API. Keeps remote checksum and final local content/timestamp checks before permanent deletion.
+- Gives FTP responses/reads a 60-second allowance, closes connections after 90 seconds without progress, and segments FTP commands to maintain control-channel activity.
+- Retries recoverable socket failures and premature EOF twice within the current file, retaining the latest checksum position. Makes continuous starts idempotent and hands an active scheduled operation over safely when the user requests continuous mode. Tracks cancellation by job ID and fulfills the foreground-service startup contract before stopping.
+- Adds continuous 100-file queue, SMB partial-file, interrupted large FTP upload/verification, temporary server-pause and throttled gigabyte regressions. Keeps all diagnostic logs and existing recording settings/signing identity.
+- Version 1.3.3/build 19. Final verification and platform limits are recorded in TESTING.md.
+- Final candidate passed 27-group transfer suites on both Android versions, 20-group Android 16 and 13-group Android 9 recording regressions, and both six-group large-file suites. Native 1 GiB transfers completed in 728254 ms on Android 16 and 1140320 ms on Android 9. Signature, package metadata and zero-error lint checks passed. Physical-phone validation remains pending.
+
 ## 2026-11-13 — 1.3.2 broad video-folder discovery
 
 - Scans the selected folder at every transfer check and accepts any video filename, MIME type or recognized extension. Uses refreshed last-modified timestamps and the configured delay. Unknown timestamps use persistent first-discovery time.

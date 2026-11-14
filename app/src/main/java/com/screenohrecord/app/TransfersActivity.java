@@ -35,6 +35,13 @@ public final class TransfersActivity extends Activity {
     private TextView status, shareLabel, domainLabel;
     private Button test, save;
     private boolean busy;
+    private final Runnable refreshProgress = new Runnable() {
+        @Override public void run() {
+            if (!busy && status != null) status.setText(TransferSettings.preferences(TransfersActivity.this)
+                    .getString("status", "Automatic moves are off until enabled and saved."));
+            handler.postDelayed(this, 1000);
+        }
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -99,7 +106,8 @@ public final class TransfersActivity extends Activity {
         password.setSaveEnabled(false);
         delay = field("Minutes since the video was last modified", "60", Integer.toString(p.getInt("delay", 60)), R.id.transfer_delay);
         delay.setInputType(InputType.TYPE_CLASS_NUMBER);
-        label("Save applies connection changes. Checks run about every 15 minutes and Android may defer them. "
+        label("Save applies connection changes and starts the eligible queue. Move videos now starts it again. "
+                + "Automatic discovery checks run about every 15 minutes and Android may defer them. "
                 + "Completed videos can move while you record. The active recording stays on the device. "
                 + "Plain FTP sends credentials and videos unencrypted. "
                 + "SMB uses SMB2 and needs a server accepting SMB2 without mandatory encryption.", 14);
@@ -109,6 +117,7 @@ public final class TransfersActivity extends Activity {
         test.setId(R.id.transfer_test);
         save = button("Save settings", this::saveSettings);
         save.setId(R.id.transfer_save);
+        button("Move videos now", this::startMoves).setId(R.id.transfer_start);
         protocol.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             private int previous = protocol.getSelectedItemPosition();
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -144,6 +153,7 @@ public final class TransfersActivity extends Activity {
             TransferSettings.save(this, config);
             enabled.setChecked(TransferSettings.preferences(this).getBoolean("enabled", false));
             status.setText(enabled.isChecked() ? "Saved. Automatic moves enabled over Wi-Fi." : "Saved. Automatic moves disabled.");
+            if (enabled.isChecked()) startMoves();
         } catch (IOException error) { status.setText(error.getMessage()); }
     }
 
@@ -177,12 +187,35 @@ public final class TransfersActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        handler.removeCallbacks(refreshProgress);
+        handler.postDelayed(refreshProgress, 1000);
         if (sourceFolder != null) {
             String message = "Recording and transfer folder\n" + RecordingOptions.folder(this);
             if (android.os.Build.VERSION.SDK_INT >= 29 && RecordingOptions.get(this).getString("folder_uri", null) == null)
                 message += "\nChoose this folder once to allow access to all its videos.";
             sourceFolder.setText(message);
         }
+    }
+
+    @Override protected void onPause() {
+        handler.removeCallbacks(refreshProgress);
+        super.onPause();
+    }
+
+    private void startMoves() {
+        if (busy) return;
+        if (!TransferSettings.preferences(this).getBoolean("enabled", false)) {
+            status.setText("Enable automatic moves and save your connection settings first.");
+            return;
+        }
+        String message;
+        if (TransferScheduler.startContinuous(this)) message = "Video queue requested. Waiting for Wi-Fi and Android to start.";
+        else {
+            TransferScheduler.retry(this);
+            message = "Android deferred the transfer start. An automatic retry is queued.";
+        }
+        TransferEngine.status(this, message);
+        status.setText(message);
     }
 
     private void testConnection() {
